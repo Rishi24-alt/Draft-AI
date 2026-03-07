@@ -369,12 +369,10 @@ def generate_pdf(messages_display, drawing_name="drawing", title_block_data=None
                 # Skip internal prefix markers
                 if answer.startswith("__TB__"):
                     answer = answer[6:]
-                clean = answer.replace("**", "").replace("*", "")
-                for line in clean.split("\n"):
-                    line = line.strip()
-                    if line:
-                        story.append(Paragraph(line, a_style))
-                story.append(HRFlowable(width="100%", thickness=0.4, color=colors.HexColor('#eeeeee'), spaceBefore=4*mm, spaceAfter=2*mm))
+            clean = answer.replace("**", "").replace("*", "")
+            clean = clean.replace("\n", "<br/>")
+            story.append(Paragraph(clean, a_style))
+            story.append(HRFlowable(width="100%", thickness=0.4, color=colors.HexColor('#eeeeee'), spaceBefore=4*mm, spaceAfter=2*mm))
             i += 2
         else:
             i += 1
