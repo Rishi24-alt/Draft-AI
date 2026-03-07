@@ -1,5 +1,5 @@
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║                        DrawingAI — app.py                       ║
+# ║                        DraftIQ — app.py                       ║
 # ║         AI-powered engineering drawing analysis tool            ║
 # ║                       by Rishi  ·  2025                         ║
 # ╚══════════════════════════════════════════════════════════════════╝
@@ -381,8 +381,8 @@ def render_title_block(raw):
 # ══════════════════════════════════════════════════════════════════
 
 st.set_page_config(
-    page_title="DrawingAI",
-    page_icon="⚙️",
+    page_title="DraftIQ",
+    page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -745,15 +745,15 @@ if "saved_chats" not in st.session_state:
 with st.sidebar:
 
     # App branding
-    st.markdown('<div class="sb-logo">⚙️ Drawing AI</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sb-logo">🧠 DraftIQ</div>', unsafe_allow_html=True)
     st.markdown('<div class="sb-sub">by Rishi</div>', unsafe_allow_html=True)
 
     # Navigation tab switcher
     st.markdown('<div class="sb-label">Navigation</div>', unsafe_allow_html=True)
-    if st.button("💬  Analyze Drawing", use_container_width=True):
+    if st.button("💬  Analyze", use_container_width=True):
         st.session_state.active_tab = "analyze"
         st.rerun()
-    if st.button("📚  Drawing Library", use_container_width=True):
+    if st.button("📚  Library", use_container_width=True):
         st.session_state.active_tab = "library"
         st.rerun()
 
@@ -823,16 +823,11 @@ with nav_col1:
     </style>""", unsafe_allow_html=True)
 
 with nav_col2:
-    # "Drawing" in white, "AI" in orange, with spinning gear icon
+    # "Draft" in white, "IQ" in orange
     st.markdown("""
-<style>
-@keyframes spinGear { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.gear-spin { display: inline-block; animation: spinGear 6s linear infinite; }
-</style>
-<div style="display:flex; align-items:center; gap:8px; margin-left:0px; margin-top:4px;">
-    <span class="gear-spin" style="font-size:26px;">⚙️</span>
-    <span style="font-size:28px; font-weight:600; color:#fff;">Drawing </span>
-    <span style="font-size:28px; font-weight:600; color:#f97316;">AI</span>
+<div style="display:flex; align-items:center; gap:6px; margin-left:0px; margin-top:4px;">
+    <span style="font-size:26px;">🧠</span>
+    <span style="font-size:28px; font-weight:700; color:#fff;">Draft</span><span style="font-size:28px; font-weight:700; color:#f97316;">IQ</span>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1020,7 +1015,7 @@ else:
     if not st.session_state.messages_display:
         # Empty state
         st.markdown("""<div class="chat-empty">
-            <div style="font-size:34px;opacity:0.15;margin-bottom:8px;">⚙️</div>
+            <div style="font-size:34px;opacity:0.15;margin-bottom:8px;">🧠</div>
             <div style="color:#ffffff;">Upload a drawing and start asking</div>
         </div>""", unsafe_allow_html=True)
     else:
@@ -1037,7 +1032,7 @@ else:
                 if content.startswith("__TB__"):
                     bubble = render_title_block(content[6:])
                     st.markdown(
-                        f'<div class="msg-row ai"><div class="ai-avatar">⚙️</div>'
+                        f'<div class="msg-row ai"><div class="ai-avatar">🧠</div>'
                         f'<div class="bubble-ai" style="max-width:90%;">{bubble}</div></div>',
                         unsafe_allow_html=True,
                     )
@@ -1045,21 +1040,21 @@ else:
                 elif content.startswith("__DIM__"):
                     bubble = render_dim_table(content[7:])
                     st.markdown(
-                        f'<div class="msg-row ai"><div class="ai-avatar">⚙️</div>'
+                        f'<div class="msg-row ai"><div class="ai-avatar">🧠</div>'
                         f'<div class="bubble-ai" style="max-width:95%;">{bubble}</div></div>',
                         unsafe_allow_html=True,
                     )
                 # Standard AI text response
                 else:
                     st.markdown(
-                        f'<div class="msg-row ai"><div class="ai-avatar">⚙️</div>'
+                        f'<div class="msg-row ai"><div class="ai-avatar">🧠</div>'
                         f'<div class="bubble-ai">{fmt(content)}</div></div>',
                         unsafe_allow_html=True,
                     )
 
     # Footer credit line
     st.markdown(
-        '<div class="footer-txt" style="margin-bottom:8px;color:#ffffff;">Made with <span>♥️</span> by Rishi</div>',
+        '<div class="footer-txt" style="margin-bottom:8px;color:#ffffff;">Made with <span>♥️</span> by Rishi · DraftIQ</div>',
         unsafe_allow_html=True,
     )
 
