@@ -596,7 +596,7 @@ def generate_pdf(messages_display, drawing_name="drawing", title_block_data=None
     story = []
 
     # ── Header ──
-    story.append(Paragraph("DrawingAI", title_style))
+    story.append(Paragraph("Draft AI", title_style))
     story.append(Paragraph("Engineering Drawing Analysis Report", sub_style))
     story.append(Spacer(1, 2*mm))
     story.append(Paragraph(f"Generated: {datetime.now().strftime('%d %B %Y, %I:%M %p')}   |   File: {drawing_name}", meta_style))
@@ -652,7 +652,7 @@ def generate_pdf(messages_display, drawing_name="drawing", title_block_data=None
     story.append(Spacer(1, 8*mm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#dddddd')))
     story.append(Spacer(1, 3*mm))
-    story.append(Paragraph("Made with ♥ by Rishi  ·  Powered by GPT-4o Vision  ·  DrawingAI", foot_style))
+    story.append(Paragraph("Made with ♥ by Rishi  ·  Powered by GPT-4o Vision  ·  Draft AI", foot_style))
 
     doc.build(story)
     buffer.seek(0)
