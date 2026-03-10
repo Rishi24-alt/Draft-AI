@@ -1016,7 +1016,7 @@ if st.session_state.active_tab == "batch":
 
     batch_files = st.file_uploader(
         "Upload drawings for batch analysis",
-        type=["png", "jpg", "jpeg", "webp"],
+        type=["png", "jpg", "jpeg", "webp", "pdf"],
         accept_multiple_files=True,
         label_visibility="collapsed",
         key="batch_uploader",
@@ -1193,7 +1193,7 @@ if st.session_state.active_tab == "library":
     # -- Add new drawing to library --
     st.markdown('<div class="section-label" style="margin-top:12px;">Add to Library</div>', unsafe_allow_html=True)
     add_file = st.file_uploader(
-        "Add drawing", type=["png","jpg","jpeg","webp"],
+        "Add drawing", type=["png","jpg","jpeg","webp","pdf"],
         label_visibility="collapsed", key="lib_upload",
     )
 
@@ -1314,7 +1314,7 @@ else:
 
     # -- File uploader --
     uploaded_file = st.file_uploader(
-        "upload", type=["png","jpg","jpeg","webp"],
+        "upload", type=["png","jpg","jpeg","webp","pdf"],
         label_visibility="collapsed",
         key=f"uploader_{st.session_state.uploader_key}",
     )
@@ -1394,7 +1394,7 @@ else:
         )
         rev_file_b = st.file_uploader(
             "Upload Revision B",
-            type=["png", "jpg", "jpeg", "webp"],
+            type=["png", "jpg", "jpeg", "webp", "pdf"],
             label_visibility="collapsed",
             key="rev_b_uploader",
         )
