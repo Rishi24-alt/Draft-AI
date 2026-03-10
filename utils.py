@@ -575,6 +575,306 @@ def compare_revisions(image_file_a, image_file_b):
     return response.choices[0].message.content
 
 
+
+# ==================================================================
+# BATCH ANALYSIS
+# ==================================================================
+
+BATCH_PROMPT = f"""You are a senior mechanical engineer reviewing an engineering drawing for a batch production report.
+{FORMAT_RULES}
+Analyze this drawing and return ONLY a valid JSON object — no explanation, no markdown, no backticks.
+
+Return exactly this structure:
+{{
+  "drawing_name": "inferred from title block or use filename",
+  "part_number": "from title block or Not specified",
+  "drawing_type": "Detail / Assembly / Section / Schematic / Other",
+  "status": "Production Ready / Needs Revision / Major Rework Required",
+  "manufacturability_score": 85,
+  "estimated_cost_usd": "45-65",
+  "complexity": "Low / Medium / High / Expert",
+  "critical_issues": ["issue 1", "issue 2"],
+  "warnings": ["warning 1", "warning 2"],
+  "missing_dimensions": true,
+  "has_gdt": true,
+  "material_specified": false,
+  "tolerance_risk": "Low / Medium / High",
+  "recommended_process": "CNC Turning + Milling",
+  "summary": "One sentence summary of this drawing"
+}}
+
+Be precise. Return ONLY the JSON. Nothing else."""
+
+
+def batch_analyze_drawing(image_file, filename="drawing"):
+    """Analyze a single drawing and return structured JSON for batch report."""
+    try:
+        result = _call_vision_api(
+            image_file,
+            BATCH_PROMPT,
+            f"Analyze this engineering drawing (filename: {filename}) and return the structured JSON report.",
+            max_tokens=800
+        )
+        import json, re
+        clean = result.strip()
+        if "```" in clean:
+            clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
+        return json.loads(clean)
+    except Exception as e:
+        return {
+            "drawing_name": filename,
+            "part_number": "—",
+            "drawing_type": "Unknown",
+            "status": "Analysis Failed",
+            "manufacturability_score": 0,
+            "estimated_cost_usd": "—",
+            "complexity": "—",
+            "critical_issues": [str(e)],
+            "warnings": [],
+            "missing_dimensions": False,
+            "has_gdt": False,
+            "material_specified": False,
+            "tolerance_risk": "—",
+            "recommended_process": "—",
+            "summary": "Analysis could not be completed for this drawing."
+        }
+
+
+def generate_batch_excel(results):
+    """Generate an Excel report from batch analysis results."""
+    import io
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return None
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Batch Analysis Report"
+
+    # ── Colour palette ──
+    ORANGE      = "F97316"
+    DARK        = "0D0D0D"
+    HEADER_BG   = "1A1A1A"
+    ROW_A       = "F9F9F9"
+    ROW_B       = "FFFFFF"
+    RED_BG      = "FEE2E2"
+    YELLOW_BG   = "FEF9C3"
+    GREEN_BG    = "DCFCE7"
+
+    thin = Side(style="thin", color="E5E7EB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # ── Title row ──
+    ws.merge_cells("A1:N1")
+    title_cell = ws["A1"]
+    title_cell.value = f"Draft AI — Batch Analysis Report   |   {datetime.now().strftime('%d %B %Y, %I:%M %p')}   |   {len(results)} drawings"
+    title_cell.font      = Font(name="Calibri", size=13, bold=True, color=ORANGE)
+    title_cell.fill      = PatternFill("solid", fgColor=DARK)
+    title_cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[1].height = 28
+
+    # ── Column headers ──
+    headers = [
+        "#", "Drawing Name", "Part Number", "Type", "Status",
+        "Mfg. Score", "Est. Cost (USD)", "Complexity",
+        "Tolerance Risk", "Missing Dims", "Has GD&T",
+        "Material Specified", "Process", "Summary"
+    ]
+    col_widths = [4, 28, 16, 14, 20, 12, 16, 12, 14, 12, 10, 16, 24, 40]
+
+    for ci, (h, w) in enumerate(zip(headers, col_widths), 1):
+        cell = ws.cell(row=2, column=ci, value=h)
+        cell.font      = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+        cell.fill      = PatternFill("solid", fgColor=HEADER_BG)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border    = border
+        ws.column_dimensions[get_column_letter(ci)].width = w
+    ws.row_dimensions[2].height = 20
+
+    # ── Data rows ──
+    for ri, r in enumerate(results, 1):
+        row = ri + 2
+        bg = ROW_A if ri % 2 == 0 else ROW_B
+
+        # Status colour
+        status = r.get("status", "")
+        if "Major" in status or "Failed" in status:
+            status_bg = RED_BG
+        elif "Revision" in status:
+            status_bg = YELLOW_BG
+        else:
+            status_bg = GREEN_BG
+
+        # Score colour
+        score = r.get("manufacturability_score", 0)
+        if isinstance(score, (int, float)):
+            if score >= 75:   score_bg = GREEN_BG
+            elif score >= 50: score_bg = YELLOW_BG
+            else:             score_bg = RED_BG
+        else:
+            score_bg = bg
+
+        vals = [
+            ri,
+            r.get("drawing_name", "—"),
+            r.get("part_number", "—"),
+            r.get("drawing_type", "—"),
+            status,
+            score,
+            r.get("estimated_cost_usd", "—"),
+            r.get("complexity", "—"),
+            r.get("tolerance_risk", "—"),
+            "Yes" if r.get("missing_dimensions") else "No",
+            "Yes" if r.get("has_gdt") else "No",
+            "Yes" if r.get("material_specified") else "No",
+            r.get("recommended_process", "—"),
+            r.get("summary", "—"),
+        ]
+
+        for ci, val in enumerate(vals, 1):
+            cell = ws.cell(row=row, column=ci, value=val)
+            cell.font      = Font(name="Calibri", size=10)
+            cell.alignment = Alignment(vertical="center", wrap_text=(ci == 14))
+            cell.border    = border
+
+            # Apply special bg
+            if ci == 5:   cell.fill = PatternFill("solid", fgColor=status_bg)
+            elif ci == 6: cell.fill = PatternFill("solid", fgColor=score_bg)
+            else:         cell.fill = PatternFill("solid", fgColor=bg)
+
+        ws.row_dimensions[row].height = 18
+
+    # ── Issues sheet ──
+    ws2 = wb.create_sheet("Issues & Warnings")
+    ws2["A1"].value = "Draft AI — Critical Issues & Warnings"
+    ws2["A1"].font  = Font(name="Calibri", size=13, bold=True, color=ORANGE)
+    ws2["A1"].fill  = PatternFill("solid", fgColor=DARK)
+    ws2.merge_cells("A1:E1")
+    ws2.row_dimensions[1].height = 28
+
+    issue_headers = ["#", "Drawing Name", "Type", "Severity", "Issue / Warning"]
+    issue_widths  = [4, 28, 10, 12, 70]
+    for ci, (h, w) in enumerate(zip(issue_headers, issue_widths), 1):
+        cell = ws2.cell(row=2, column=ci, value=h)
+        cell.font      = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+        cell.fill      = PatternFill("solid", fgColor=HEADER_BG)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border    = border
+        ws2.column_dimensions[get_column_letter(ci)].width = w
+
+    irow = 3
+    for ri, r in enumerate(results, 1):
+        name = r.get("drawing_name", "—")
+        for issue in r.get("critical_issues", []):
+            for ci, val in enumerate([ri, name, "CRITICAL", "Critical", issue], 1):
+                cell = ws2.cell(row=irow, column=ci, value=val)
+                cell.font   = Font(name="Calibri", size=10)
+                cell.fill   = PatternFill("solid", fgColor=RED_BG)
+                cell.border = border
+                cell.alignment = Alignment(vertical="center", wrap_text=(ci==5))
+            ws2.row_dimensions[irow].height = 18
+            irow += 1
+        for warn in r.get("warnings", []):
+            for ci, val in enumerate([ri, name, "WARNING", "Warning", warn], 1):
+                cell = ws2.cell(row=irow, column=ci, value=val)
+                cell.font   = Font(name="Calibri", size=10)
+                cell.fill   = PatternFill("solid", fgColor=YELLOW_BG)
+                cell.border = border
+                cell.alignment = Alignment(vertical="center", wrap_text=(ci==5))
+            ws2.row_dimensions[irow].height = 18
+            irow += 1
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def generate_batch_pdf(results):
+    """Generate a PDF summary report from batch analysis results."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        rightMargin=18*mm, leftMargin=18*mm,
+        topMargin=18*mm, bottomMargin=18*mm
+    )
+
+    title_s  = ParagraphStyle('T',  fontSize=18, fontName='Helvetica-Bold', textColor=colors.HexColor('#f97316'), spaceAfter=3)
+    sub_s    = ParagraphStyle('S',  fontSize=9,  fontName='Helvetica',      textColor=colors.HexColor('#888888'), spaceAfter=2)
+    h2_s     = ParagraphStyle('H2', fontSize=11, fontName='Helvetica-Bold', textColor=colors.HexColor('#111111'), spaceBefore=10, spaceAfter=5)
+    body_s   = ParagraphStyle('B',  fontSize=9,  fontName='Helvetica',      textColor=colors.HexColor('#333333'), leading=14, spaceAfter=3)
+    foot_s   = ParagraphStyle('F',  fontSize=7,  fontName='Helvetica',      textColor=colors.HexColor('#aaaaaa'), alignment=TA_CENTER)
+
+    story = []
+    story.append(Paragraph("Draft AI", title_s))
+    story.append(Paragraph(f"Batch Analysis Report — {len(results)} drawings — {datetime.now().strftime('%d %B %Y, %I:%M %p')}", sub_s))
+    story.append(Spacer(1, 3*mm))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#f97316'), spaceAfter=5*mm))
+
+    # Summary stats
+    total   = len(results)
+    ready   = sum(1 for r in results if "Ready" in r.get("status",""))
+    needs   = sum(1 for r in results if "Revision" in r.get("status",""))
+    rework  = sum(1 for r in results if "Major" in r.get("status","") or "Failed" in r.get("status",""))
+    scores  = [r.get("manufacturability_score",0) for r in results if isinstance(r.get("manufacturability_score"),int)]
+    avg_sc  = round(sum(scores)/len(scores)) if scores else "—"
+
+    story.append(Paragraph("SUMMARY", h2_s))
+    summary_data = [
+        ["Total Drawings", str(total), "Production Ready", str(ready)],
+        ["Needs Revision",  str(needs),  "Major Rework",    str(rework)],
+        ["Avg Mfg. Score",  str(avg_sc), "", ""],
+    ]
+    st_table = Table(summary_data, colWidths=[42*mm, 20*mm, 42*mm, 20*mm])
+    st_table.setStyle(TableStyle([
+        ('FONTNAME',  (0,0), (-1,-1), 'Helvetica'),
+        ('FONTSIZE',  (0,0), (-1,-1), 9),
+        ('FONTNAME',  (0,0), (0,-1), 'Helvetica-Bold'),
+        ('FONTNAME',  (2,0), (2,-1), 'Helvetica-Bold'),
+        ('ROWBACKGROUNDS', (0,0), (-1,-1), [colors.HexColor('#fafafa'), colors.HexColor('#f3f3f3')]),
+        ('GRID', (0,0), (-1,-1), 0.4, colors.HexColor('#e0e0e0')),
+        ('PADDING', (0,0), (-1,-1), 5),
+    ]))
+    story.append(st_table)
+    story.append(Spacer(1, 5*mm))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#eeeeee'), spaceAfter=4*mm))
+
+    # Per-drawing entries
+    story.append(Paragraph("DRAWING DETAILS", h2_s))
+    for i, r in enumerate(results, 1):
+        status = r.get("status","—")
+        score  = r.get("manufacturability_score","—")
+        clr    = '#16a34a' if "Ready" in status else ('#d97706' if "Revision" in status else '#dc2626')
+        story.append(Paragraph(
+            f'<font color="#f97316">{i}.</font>  <b>{r.get("drawing_name","—")}</b>  '
+            f'<font color="{clr}">[ {status} ]</font>  '
+            f'Score: <b>{score}/100</b>  |  Cost: <b>${r.get("estimated_cost_usd","—")}</b>  |  {r.get("complexity","—")} complexity',
+            body_s
+        ))
+        story.append(Paragraph(r.get("summary","—"), ParagraphStyle('bs', fontSize=8, fontName='Helvetica', textColor=colors.HexColor('#555555'), leftIndent=12, spaceAfter=2)))
+
+        issues = r.get("critical_issues",[])
+        warns  = r.get("warnings",[])
+        if issues:
+            for iss in issues:
+                story.append(Paragraph(f'<font color="#dc2626">  CRITICAL: {iss}</font>', ParagraphStyle('is', fontSize=8, fontName='Helvetica', leftIndent=12, spaceAfter=1)))
+        if warns:
+            for w in warns:
+                story.append(Paragraph(f'<font color="#d97706">  WARNING: {w}</font>', ParagraphStyle('ws', fontSize=8, fontName='Helvetica', leftIndent=12, spaceAfter=1)))
+        story.append(Spacer(1, 3*mm))
+
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#dddddd')))
+    story.append(Spacer(1, 3*mm))
+    story.append(Paragraph("Made with ♥ by Rishi  ·  Powered by GPT-4o Vision  ·  Draft AI", foot_s))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+
 def generate_pdf(messages_display, drawing_name="drawing", title_block_data=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -583,27 +883,57 @@ def generate_pdf(messages_display, drawing_name="drawing", title_block_data=None
         topMargin=20*mm, bottomMargin=20*mm
     )
 
-    title_style = ParagraphStyle('T',  fontSize=20, fontName='Helvetica-Bold', textColor=colors.HexColor('#f97316'), spaceAfter=4)
-    sub_style   = ParagraphStyle('S',  fontSize=10, fontName='Helvetica',      textColor=colors.HexColor('#666666'), spaceAfter=2)
-    meta_style  = ParagraphStyle('M',  fontSize=9,  fontName='Helvetica',      textColor=colors.HexColor('#999999'))
-    q_style     = ParagraphStyle('Q',  fontSize=10, fontName='Helvetica-Bold', textColor=colors.HexColor('#f97316'), spaceBefore=14, spaceAfter=5)
-    a_style     = ParagraphStyle('A',  fontSize=10, fontName='Helvetica',      textColor=colors.HexColor('#333333'), leading=16, spaceAfter=4, leftIndent=10)
-    tb_key      = ParagraphStyle('TK', fontSize=9,  fontName='Helvetica-Bold', textColor=colors.HexColor('#444444'))
-    tb_val      = ParagraphStyle('TV', fontSize=9,  fontName='Helvetica',      textColor=colors.HexColor('#222222'))
-    foot_style  = ParagraphStyle('F',  fontSize=8,  fontName='Helvetica',      textColor=colors.HexColor('#aaaaaa'), alignment=TA_CENTER)
-    sec_style   = ParagraphStyle('SEC',fontSize=11, fontName='Helvetica-Bold', textColor=colors.HexColor('#222222'), spaceBefore=12, spaceAfter=6)
+    title_style = ParagraphStyle(
+        'T', fontSize=21, leading=24, fontName='Helvetica-Bold',
+        textColor=colors.HexColor('#f97316'), spaceAfter=0
+    )
+    sub_style = ParagraphStyle(
+        'S', fontSize=12, leading=15, fontName='Helvetica-Bold',
+        textColor=colors.HexColor('#555555'), spaceAfter=0
+    )
+    meta_style = ParagraphStyle(
+        'M', fontSize=8.5, leading=11, fontName='Helvetica',
+        textColor=colors.HexColor('#888888')
+    )
+    q_style = ParagraphStyle(
+        'Q', fontSize=10.5, leading=13, fontName='Helvetica-Bold',
+        textColor=colors.HexColor('#f97316'), spaceBefore=12, spaceAfter=5
+    )
+    a_style = ParagraphStyle(
+        'A', fontSize=9.5, leading=15, fontName='Helvetica',
+        textColor=colors.HexColor('#333333'), spaceAfter=6, leftIndent=10
+    )
+    tb_key = ParagraphStyle(
+        'TK', fontSize=9, leading=12, fontName='Helvetica-Bold',
+        textColor=colors.HexColor('#444444')
+    )
+    tb_val = ParagraphStyle(
+        'TV', fontSize=9, leading=12, fontName='Helvetica',
+        textColor=colors.HexColor('#222222')
+    )
+    foot_style = ParagraphStyle(
+        'F', fontSize=7.5, leading=10, fontName='Helvetica',
+        textColor=colors.HexColor('#888888'), alignment=TA_CENTER
+    )
+    sec_style = ParagraphStyle(
+        'SEC', fontSize=11, leading=14, fontName='Helvetica-Bold',
+        textColor=colors.HexColor('#222222'), spaceBefore=10, spaceAfter=6
+    )
 
     story = []
 
-    # ── Header ──
     story.append(Paragraph("Draft AI", title_style))
     story.append(Paragraph("Engineering Drawing Analysis Report", sub_style))
-    story.append(Spacer(1, 2*mm))
-    story.append(Paragraph(f"Generated: {datetime.now().strftime('%d %B %Y, %I:%M %p')}   |   File: {drawing_name}", meta_style))
-    story.append(Spacer(1, 4*mm))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#f97316'), spaceAfter=6*mm))
+    story.append(Spacer(1, 1.5 * mm))
+    story.append(
+        Paragraph(
+            f"Generated: {datetime.now().strftime('%d %B %Y, %I:%M %p')} | File: {drawing_name}",
+            meta_style,
+        )
+    )
+    story.append(Spacer(1, 4.5 * mm))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#f97316'), spaceAfter=6 * mm))
 
-    # ── Title Block ──
     if title_block_data:
         story.append(Paragraph("TITLE BLOCK", sec_style))
         table_data = []
@@ -615,18 +945,20 @@ def generate_pdf(messages_display, drawing_name="drawing", title_block_data=None
                 if val and val.lower() != "not specified":
                     table_data.append([Paragraph(key, tb_key), Paragraph(val, tb_val)])
         if table_data:
-            t = Table(table_data, colWidths=[50*mm, 110*mm])
-            t.setStyle(TableStyle([
-                ('ROWBACKGROUNDS', (0,0), (-1,-1), [colors.HexColor('#fafafa'), colors.HexColor('#f3f3f3')]),
-                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e0e0e0')),
-                ('PADDING', (0,0), (-1,-1), 6),
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            table = Table(table_data, colWidths=[50 * mm, 110 * mm])
+            table.setStyle(TableStyle([
+                ('ROWBACKGROUNDS', (0, 0), (-1, -1), [colors.HexColor('#fafafa'), colors.HexColor('#f3f3f3')]),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ]))
-            story.append(t)
-            story.append(Spacer(1, 6*mm))
-            story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#eeeeee'), spaceAfter=4*mm))
+            story.append(table)
+            story.append(Spacer(1, 6 * mm))
+            story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#eeeeee'), spaceAfter=4 * mm))
 
-    # ── Q&A ──
     story.append(Paragraph("ANALYSIS", sec_style))
     q_num = 1
     i = 0
@@ -635,24 +967,25 @@ def generate_pdf(messages_display, drawing_name="drawing", title_block_data=None
         if msg["role"] == "user":
             story.append(Paragraph(f"Q{q_num}: {msg['content']}", q_style))
             q_num += 1
+            answer = ""
             if i + 1 < len(messages_display):
                 answer = messages_display[i + 1]["content"]
-                # Skip internal prefix markers
                 if answer.startswith("__TB__"):
                     answer = answer[6:]
+                elif answer.startswith("__DIM__"):
+                    answer = answer[7:]
             clean = answer.replace("**", "").replace("*", "")
             clean = clean.replace("\n", "<br/>")
             story.append(Paragraph(clean, a_style))
-            story.append(HRFlowable(width="100%", thickness=0.4, color=colors.HexColor('#eeeeee'), spaceBefore=4*mm, spaceAfter=2*mm))
+            story.append(HRFlowable(width="100%", thickness=0.4, color=colors.HexColor('#eeeeee'), spaceBefore=4 * mm, spaceAfter=2 * mm))
             i += 2
         else:
             i += 1
 
-    # ── Footer ──
-    story.append(Spacer(1, 8*mm))
+    story.append(Spacer(1, 7 * mm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#dddddd')))
-    story.append(Spacer(1, 3*mm))
-    story.append(Paragraph("Made with ♥ by Rishi  ·  Powered by GPT-4o Vision  ·  Draft AI", foot_style))
+    story.append(Spacer(1, 3.5 * mm))
+    story.append(Paragraph("Made with Draft AI | Powered by GPT-4o Vision | Rishi", foot_style))
 
     doc.build(story)
     buffer.seek(0)

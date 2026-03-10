@@ -20,6 +20,10 @@ from utils import (
     estimate_cost,
     detect_missing_dimensions,
     compare_revisions,
+    # -- batch analysis --
+    batch_analyze_drawing,
+    generate_batch_excel,
+    generate_batch_pdf,
 )
 import json, os, re, time, base64, shutil
 from datetime import datetime
@@ -333,7 +337,7 @@ def render_dim_table(json_str):
         )
 
         return f'''<div style="background:rgba(249,115,22,0.04);border:1px solid rgba(249,115,22,0.15);border-radius:10px;overflow:hidden;">
-            <div style="padding:8px 14px;font-size:10px;font-family:JetBrains Mono,monospace;color:#f97316;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid rgba(249,115,22,0.12);">
+            <div style="padding:8px 14px;font-size:10px;font-family:DM Mono,monospace;color:#f97316;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid rgba(249,115,22,0.12);">
                 ?? DIMENSIONS DETECTED � {len(dims)} found
             </div>
             <table style="width:100%;border-collapse:collapse;">
@@ -367,14 +371,14 @@ def render_title_block(raw):
                 rows += (
                     f'<tr>'
                     f'<td style="padding:7px 14px;color:rgba(255,255,255,0.45);font-size:12px;'
-                    f'font-family:JetBrains Mono,monospace;white-space:nowrap;'
+                    f'font-family:DM Mono,monospace;white-space:nowrap;'
                     f'border-bottom:1px solid rgba(255,255,255,0.04);">{k}</td>'
                     f'<td style="padding:7px 14px;color:#fff;font-size:13px;'
                     f'border-bottom:1px solid rgba(255,255,255,0.04);">{v}</td>'
                     f'</tr>'
                 )
     return f'''<div style="background:rgba(249,115,22,0.05);border:1px solid rgba(249,115,22,0.18);border-radius:10px;overflow:hidden;">
-        <div style="padding:8px 14px;font-size:10px;font-family:JetBrains Mono,monospace;color:#f97316;
+        <div style="padding:8px 14px;font-size:10px;font-family:DM Mono,monospace;color:#f97316;
                     letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid rgba(249,115,22,0.12);">
             ??? TITLE BLOCK
         </div>
@@ -437,412 +441,436 @@ st.set_page_config(
 st.markdown("""
 <style>
 
-/* -- FONTS � Professional system stack (Helvetica Neue primary) -- */
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+/* ── FONTS ── */
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap');
 
-/* -- RESET -- */
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
 
-/* -- BASE PAGE BACKGROUND -- */
-html, body                          { background: #0a0a0a !important; font-family: 'Helvetica Neue', Helvetica, Arial, 'DM Sans', sans-serif; letter-spacing: -0.01em; }
-[data-testid="stAppViewContainer"]  { background: #0a0a0a !important; }
-[data-testid="stMain"]              { background: #0a0a0a !important; overflow-y: auto !important; }
-
-/* -- SUBTLE RADIAL GLOW (decorative background) -- */
-[data-testid="stAppViewContainer"]::before {
-    content: '';
-    position: fixed;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    background:
-        radial-gradient(ellipse 50% 40% at 20% 20%, rgba(249,115,22,0.035) 0%, transparent 70%),
-        radial-gradient(ellipse 40% 30% at 80% 80%, rgba(249,115,22,0.025) 0%, transparent 70%);
-    pointer-events: none;
-    z-index: 0;
-}
-
-/* -- MAIN CONTENT CONTAINER -- */
-.block-container {
-    max-width: 900px !important;
-    margin: 0 auto !important;
-    padding: 40px 8px 120px 8px !important;
+html, body {
+    background: #0b0b0b !important;
+    font-family: 'Syne', sans-serif;
+    letter-spacing: -0.01em;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
     min-height: 100vh !important;
 }
+[data-testid="stAppViewContainer"] {
+    background: #0b0b0b !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    min-height: 100vh !important;
+}
+[data-testid="stMain"] {
+    background: #0b0b0b !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    min-height: 100vh !important;
+}
+[data-testid="stHeader"] { background: transparent !important; height: 0 !important; }
 
-/* -- HIDE STREAMLIT DEFAULT UI (deploy button, menu, footer) -- */
+/* Hide ALL scrollbars by default */
+::-webkit-scrollbar { width: 0px !important; height: 0px !important; display: none !important; }
+* { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+
+/* ── GLOW ── */
+[data-testid="stAppViewContainer"]::before {
+    content: '';
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background:
+        radial-gradient(ellipse 70% 50% at 10% 5%,  rgba(249,115,22,0.05) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 40% at 90% 90%,  rgba(249,115,22,0.03) 0%, transparent 60%);
+    pointer-events: none; z-index: 0;
+}
+
+/* ── LAYOUT ── */
+.block-container {
+    max-width: 980px !important;
+    margin: 0 auto !important;
+    padding: 0 16px 170px 16px !important;
+    min-height: calc(100vh - 24px) !important;
+    height: auto !important;
+    max-height: unset !important;
+    overflow: visible !important;
+}
 .stDeployButton, #MainMenu, footer { display: none !important; }
 
-/* -- SIDEBAR TOGGLE BUTTON -- */
+/* ── FIXED TOP BAR ── */
+.top-bar {
+    position: sticky; top: 0; z-index: 200;
+    background: rgba(11,11,11,0.92);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding: 12px 4px;
+    margin-bottom: 10px;
+    display: flex; align-items: center; justify-content: space-between;
+}
+.top-bar-left  { display: flex; align-items: center; gap: 12px; }
+.top-bar-logo  {
+    font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800;
+    letter-spacing: -0.05em; color: #fff; line-height: 1;
+}
+.top-bar-logo span { color: #f97316; }
+.top-bar-badge {
+    font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 600;
+    background: rgba(249,115,22,0.12); border: 1px solid rgba(249,115,22,0.25);
+    color: #f97316; padding: 2px 8px; border-radius: 100px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+}
+.top-bar-file {
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    color: rgba(255,255,255,0.35); background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.07); border-radius: 6px;
+    padding: 4px 10px; max-width: 220px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.top-bar-file .dot { color: #22c55e; margin-right: 5px; }
+
+/* ── SIDEBAR TOGGLE ── */
 [data-testid="collapsedControl"] {
-    position: fixed !important;
-    top: 18px !important;
-    left: 18px !important;
-    z-index: 99999 !important;
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    background: rgba(249,115,22,0.12) !important;
-    border: 1px solid rgba(249,115,22,0.28) !important;
-    border-radius: 6px !important;
-    padding: 6px 10px !important;
-    cursor: pointer !important;
+    position: fixed !important; top: 14px !important; left: 14px !important;
+    z-index: 99999 !important; display: flex !important; visibility: visible !important; opacity: 1 !important;
+    background: rgba(249,115,22,0.08) !important;
+    border: 1px solid rgba(249,115,22,0.2) !important;
+    border-radius: 6px !important; padding: 5px 9px !important; cursor: pointer !important;
+    transition: all 0.15s !important;
 }
-[data-testid="collapsedControl"] svg {
-    color: #f97316 !important;
-    fill: #f97316 !important;
-    width: 18px !important;
-    height: 18px !important;
-}
+[data-testid="collapsedControl"]:hover { background: rgba(249,115,22,0.15) !important; }
+[data-testid="collapsedControl"] svg { color: #f97316 !important; fill: #f97316 !important; width: 15px !important; height: 15px !important; }
 
-/* -- PAGE SCROLL -- */
-html, body { overflow-y: auto; }
-[data-testid="stAppViewContainer"] { overflow-y: auto !important; height: 100vh; }
-
-/* -- STREAMLIT HEADER -- */
-[data-testid="stHeader"] { background: transparent !important; }
-
-/* -- SIDEBAR PANEL -- */
+/* ── SIDEBAR ── */
 [data-testid="stSidebar"] {
     background: #0d0d0d !important;
-    border-right: 1px solid rgba(255,255,255,0.04) !important;
+    border-right: 1px solid rgba(255,255,255,0.05) !important;
 }
-[data-testid="stSidebar"] > div:first-child { padding: 28px 18px !important; }
+[data-testid="stSidebar"] > div:first-child { padding: 24px 14px !important; }
 
-/* Sidebar branding */
-.sb-logo {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.03em;
-    color: #fff;
-    margin-bottom: 2px;
-    margin-top: -12px;
-}
+.sb-logo { font-family: 'Syne', sans-serif; font-size: 19px; font-weight: 800; letter-spacing: -0.04em; color: #fff; margin-top: -6px; margin-bottom: 1px; }
 .sb-logo span { color: #f97316; }
-.sb-sub {
-    font-size: 10px;
-    color: rgba(255,255,255,0.18);
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    letter-spacing: 0.04em;
-    margin-top: -2px;
-    margin-bottom: 20px;
-    text-transform: uppercase;
-}
+.sb-sub  { font-size: 9px; color: rgba(255,255,255,0.15); font-family: 'DM Mono', monospace; letter-spacing: 0.1em; margin-bottom: 20px; text-transform: uppercase; }
 
-/* Sidebar section labels */
 .sb-label {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    font-size: 9px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.2);
-    margin-bottom: 8px;
-    margin-top: 16px;
-    font-weight: 600;
+    font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: rgba(255,255,255,0.18);
+    margin-bottom: 4px; margin-top: 20px; padding-left: 2px;
 }
+.sb-quota      { font-family: 'DM Mono', monospace; font-size: 10px; color: rgba(255,255,255,0.15); margin-bottom: 8px; padding-left: 2px; }
+.sb-quota span { color: #f97316; font-weight: 600; }
 
-/* Sidebar quota */
-.sb-quota       { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 11px; color: rgba(255,255,255,0.2); margin-bottom: 12px; }
-.sb-quota span  { color: #f97316; font-weight: 600; }
-
-/* Sidebar buttons */
+/* Sidebar nav — ghost buttons with active-state left bar */
 [data-testid="stSidebar"] .stButton > button {
-    background: rgba(255,255,255,0.03) !important;
-    border: 1px solid rgba(255,255,255,0.06) !important;
-    color: rgba(255,255,255,0.55) !important;
-    border-radius: 6px !important;
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
-    font-size: 12px !important;
-    font-weight: 400 !important;
-    padding: 9px 12px !important;
-    width: 100% !important;
-    text-align: left !important;
-    margin-bottom: 3px !important;
-    transition: all 0.12s !important;
-    letter-spacing: 0em !important;
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    color: rgba(255,255,255,0.4) !important;
+    border-radius: 7px !important;
+    font-family: 'Syne', sans-serif !important;
+    font-size: 12px !important; font-weight: 500 !important;
+    padding: 8px 12px !important; width: 100% !important;
+    text-align: left !important; margin-bottom: 1px !important;
+    transition: all 0.15s !important;
+    height: auto !important; min-height: unset !important; max-height: unset !important;
+    justify-content: flex-start !important;
 }
 [data-testid="stSidebar"] .stButton > button:hover {
     background: rgba(249,115,22,0.07) !important;
-    border-color: rgba(249,115,22,0.18) !important;
+    border-color: rgba(249,115,22,0.12) !important;
     color: #f97316 !important;
 }
 
-/* -- SPINNING GEAR ANIMATION -- */
+/* ── GEAR SPIN ── */
 @keyframes spinGear { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.gear-spin { display: inline-block; animation: spinGear 6s linear infinite; }
+.gear-spin { display: inline-block; animation: spinGear 8s linear infinite; }
 
-/* -- TOP NAV BAR -- */
-.top-nav {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    padding: 16px 12px 14px 12px !important;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-    margin-bottom: 12px;
-    margin-top: 0 !important;
-    background: rgba(10,10,10,0.98) !important;
-    z-index: 100;
-}
-
-/* -- FILE UPLOADER -- */
+/* ── UPLOAD ZONE ── */
 [data-testid="stFileUploader"] > div {
-    border: 1.5px dashed rgba(255,255,255,0.07) !important;
-    background: rgba(255,255,255,0.015) !important;
-    border-radius: 8px !important;
-    padding: 8px 14px !important;
-}
-[data-testid="stFileUploader"] > div:hover           { border-color: rgba(249,115,22,0.28) !important; }
-[data-testid="stFileUploader"] label                 { display: none !important; }
-[data-testid="stFileUploader"] button                {
-    background: rgba(249,115,22,0.09) !important;
-    border: 1px solid rgba(249,115,22,0.2) !important;
-    color: #f97316 !important;
-    border-radius: 5px !important;
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
-    font-size: 11px !important;
-    font-weight: 500 !important;
-    letter-spacing: 0.02em !important;
-}
-[data-testid="stFileUploaderDropzoneInstructions"]   {
-    font-size: 11px !important;
-    color: rgba(255,255,255,0.18) !important;
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
-}
-[data-testid="stImage"] img {
-    border-radius: 6px !important;
-    border: 1px solid rgba(255,255,255,0.06) !important;
-    object-fit: contain !important;
-}
-[data-testid="stImage"] button {
-    display: none !important;
-}
-
-/* -- SECTION LABELS -- */
-.section-label {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    font-size: 9px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.18);
-    margin-bottom: 8px;
-    font-weight: 600;
-}
-
-/* -- ALL ACTION BUTTONS -- */
-.stButton > button {
-    background: rgba(255,255,255,0.03) !important;
-    border: 1px solid rgba(255,255,255,0.07) !important;
-    color: rgba(255,255,255,0.75) !important;
-    border-radius: 6px !important;
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
-    font-size: 12px !important;
-    font-weight: 400 !important;
-    letter-spacing: 0em !important;
-    padding: 10px 10px !important;
-    width: 100% !important;
-    transition: all 0.12s !important;
+    border: 1.5px dashed rgba(249,115,22,0.18) !important;
+    background: rgba(249,115,22,0.025) !important;
+    border-radius: 10px !important; padding: 8px 14px !important;
+    transition: all 0.2s !important;
     text-align: center !important;
+}
+[data-testid="stFileUploader"] > div:hover {
+    border-color: rgba(249,115,22,0.45) !important;
+    background: rgba(249,115,22,0.045) !important;
+}
+[data-testid="stFileUploader"] label { display: none !important; }
+[data-testid="stFileUploader"] button {
+    background: rgba(249,115,22,0.1) !important;
+    border: 1px solid rgba(249,115,22,0.22) !important;
+    color: #f97316 !important; border-radius: 6px !important;
+    font-family: 'Syne', sans-serif !important; font-size: 11px !important; font-weight: 600 !important;
+}
+[data-testid="stFileUploaderDropzoneInstructions"] {
+    font-size: 10px !important; color: rgba(255,255,255,0.18) !important;
+    font-family: 'DM Mono', monospace !important;
+}
+[data-testid="stImage"] img { border-radius: 10px !important; border: 1px solid rgba(255,255,255,0.07) !important; object-fit: contain !important; }
+[data-testid="stImage"] button { display: none !important; }
+
+/* ── UPLOAD HINT ── */
+.upload-hint {
+    display: flex; align-items: center; justify-content: center;
+    gap: 8px; padding: 2px 0 0px;
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    color: rgba(255,255,255,0.15); letter-spacing: 0.05em;
+}
+.upload-hint span { color: rgba(249,115,22,0.5); }
+
+/* ── SECTION LABELS ── */
+.section-label {
+    font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: rgba(255,255,255,0.28);
+    margin-bottom: 6px; font-weight: 500;
+    display: flex; align-items: center; gap: 8px;
+}
+.section-label::after {
+    content: ''; flex: 1; height: 1px;
+    background: rgba(255,255,255,0.05);
+}
+
+/* ── ACTION BUTTONS ── */
+.stButton, .stButton > div,
+[data-testid="stDownloadButton"], [data-testid="stDownloadButton"] > div,
+.stDownloadButton, .stDownloadButton > div, .stDownloadButton > div > div { width: 100% !important; }
+
+.stButton > button,
+[data-testid="stDownloadButton"] button,
+.stDownloadButton button {
+    background: rgba(255,255,255,0.028) !important;
+    border: 1px solid rgba(255,255,255,0.07) !important;
+    color: rgba(255,255,255,0.55) !important;
+    border-radius: 9px !important;
+    font-family: 'Syne', sans-serif !important;
+    font-size: 11.5px !important; font-weight: 500 !important;
+    padding: 8px !important; width: 100% !important;
+    height: 44px !important; min-height: 44px !important; max-height: 44px !important;
+    margin: 0 !important; transition: all 0.15s ease !important;
+    text-align: center !important; display: flex !important;
+    align-items: center !important; justify-content: center !important;
+    line-height: 1.3 !important; white-space: normal !important;
+    gap: 4px !important;
 }
 .stButton > button:hover {
-    background: rgba(249,115,22,0.07) !important;
-    border-color: rgba(249,115,22,0.22) !important;
+    background: rgba(249,115,22,0.09) !important;
+    border-color: rgba(249,115,22,0.28) !important;
     color: #f97316 !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 18px rgba(249,115,22,0.1) !important;
 }
 
-/* Primary "Analyze" submit button */
+/* Primary button */
 .stButton > button[kind="primary"] {
-    background: #f97316 !important;
-    border: none !important;
-    color: #fff !important;
-    font-weight: 600 !important;
-    font-size: 13px !important;
-    letter-spacing: 0.02em !important;
-    border-radius: 6px !important;
-    text-align: center !important;
-    padding: 13px !important;
+    background: #f97316 !important; border: none !important;
+    color: #000 !important; font-weight: 700 !important;
+    font-size: 13px !important; border-radius: 9px !important;
+    height: 44px !important; min-height: 44px !important; max-height: 44px !important;
+    box-shadow: 0 0 24px rgba(249,115,22,0.25) !important;
+    letter-spacing: 0.01em !important;
 }
-.stButton > button[kind="primary"]:hover { background: #e86910 !important; }
+.stButton > button[kind="primary"]:hover {
+    background: #fb923c !important;
+    box-shadow: 0 0 36px rgba(249,115,22,0.35) !important;
+    transform: translateY(-1px) !important;
+}
 
-/* -- CHAT MESSAGES -- */
-.msg-row      { display: flex; margin-bottom: 20px; }
+/* ── CHAT AREA ── */
+.chat-section-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 0 4px;
+    font-family: 'DM Mono', monospace; font-size: 9px;
+    color: rgba(255,255,255,0.2); letter-spacing: 0.14em; text-transform: uppercase;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    margin-top: 4px; margin-bottom: 6px;
+}
+.chat-section-header::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.04); }
+
+.msg-row      { display: flex; margin-bottom: 16px; }
 .msg-row.user { justify-content: flex-end; }
-.msg-row.ai   { justify-content: flex-start; gap: 12px; align-items: flex-start; }
+.msg-row.ai   { justify-content: flex-start; gap: 10px; align-items: flex-start; }
 
 .bubble-user {
     background: rgba(249,115,22,0.09);
     border: 1px solid rgba(249,115,22,0.18);
     border-radius: 14px 14px 3px 14px;
-    padding: 11px 16px;
-    max-width: 72%;
-    font-size: 13px;
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    color: rgba(255,255,255,0.9);
-    line-height: 1.65;
+    padding: 10px 15px; max-width: 68%;
+    font-size: 13px; font-family: 'Syne', sans-serif;
+    color: rgba(255,255,255,0.9); line-height: 1.65;
 }
 
 .ai-avatar {
-    width: 26px; height: 26px;
-    flex-shrink: 0;
-    background: rgba(249,115,22,0.1);
-    border: 1px solid rgba(249,115,22,0.18);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    font-weight: 700;
-    color: #f97316;
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    margin-top: 2px;
-    letter-spacing: -0.04em;
+    width: 26px; height: 26px; flex-shrink: 0;
+    background: linear-gradient(135deg, rgba(249,115,22,0.2), rgba(249,115,22,0.05));
+    border: 1px solid rgba(249,115,22,0.22);
+    border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; margin-top: 1px;
 }
 
-.bubble-ai  { max-width: 88%; font-size: 13px; color: rgba(255,255,255,0.85); line-height: 1.7; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+.bubble-ai {
+    max-width: 90%; font-size: 13px;
+    color: rgba(255,255,255,0.82); line-height: 1.75;
+    font-family: 'Syne', sans-serif;
+}
 
+/* ── EMPTY STATE ── */
 .chat-empty {
-    text-align: center;
-    padding: 60px 0 40px;
-    color: rgba(255,255,255,0.1);
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    font-weight: 500;
+    text-align: center; padding: 16px 20px 8px;
+}
+.chat-empty-icon {
+    font-size: 28px; margin-bottom: 8px; opacity: 0.6;
+    animation: floatIcon 3s ease-in-out infinite;
+}
+@keyframes floatIcon {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(-6px); }
+}
+.chat-empty-title {
+    font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 600;
+    color: rgba(255,255,255,0.4); margin-bottom: 4px;
+}
+.chat-empty-sub {
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    color: rgba(255,255,255,0.2); letter-spacing: 0.04em; margin-bottom: 28px;
+}
+.suggestion-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; }
+.chip {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 100px; padding: 7px 14px;
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    color: rgba(255,255,255,0.35); cursor: pointer;
+    transition: all 0.15s;
+}
+.chip:hover { border-color: rgba(249,115,22,0.3); color: #f97316; background: rgba(249,115,22,0.06); }
+
+/* Suggestion chip buttons — pill shaped */
+div[data-testid="stHorizontalBlock"] div[data-testid="column"] > div > div > div > button[key^="chip"] {
+    border-radius: 100px !important;
+    height: 34px !important; min-height: 34px !important; max-height: 34px !important;
+    font-family: 'DM Mono', monospace !important; font-size: 10px !important;
+    font-weight: 400 !important; color: rgba(255,255,255,0.4) !important;
+    background: rgba(255,255,255,0.03) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    white-space: nowrap !important;
 }
 
-/* -- STICKY BOTTOM INPUT BAR -- */
+/* ── STICKY BAR ── */
 .sticky-wrap {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    height: 90px;
+    position: fixed; left: 0; right: 0;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    background: transparent;
+    padding-top: 0; z-index: 100;
+    pointer-events: none;
 }
-.sticky-inner { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+.sticky-inner { max-width: 980px; margin: 0 auto; padding: 0 20px 0; pointer-events: auto; }
 
 .stTextArea textarea {
     background: rgba(255,255,255,0.04) !important;
     border: 1px solid rgba(255,255,255,0.09) !important;
-    border-radius: 8px !important;
-    color: rgba(255,255,255,0.9) !important;
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
-    font-size: 13px !important;
-    padding: 12px 16px !important;
-    resize: none !important;
-    line-height: 1.6 !important;
-    letter-spacing: 0em !important;
+    border-radius: 12px !important; color: rgba(255,255,255,0.9) !important;
+    font-family: 'Syne', sans-serif !important; font-size: 13px !important;
+    padding: 13px 16px !important; resize: none !important; line-height: 1.6 !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
 }
-.stTextArea textarea:focus        { border-color: rgba(249,115,22,0.4) !important; box-shadow: 0 0 0 3px rgba(249,115,22,0.06) !important; outline: none !important; }
+.stTextArea textarea:focus {
+    border-color: rgba(249,115,22,0.4) !important;
+    box-shadow: 0 0 0 3px rgba(249,115,22,0.06) !important; outline: none !important;
+}
 .stTextArea textarea::placeholder { color: rgba(255,255,255,0.18) !important; }
-.stTextArea label                 { display: none !important; }
+.stTextArea label { display: none !important; }
 [data-testid="InputInstructions"] { display: none !important; }
 
-/* -- PDF DOWNLOAD BUTTON -- */
-.stDownloadButton button {
-    background: rgba(255,255,255,0.04) !important;
-    border: 1px solid rgba(255,255,255,0.09) !important;
-    color: rgba(255,255,255,0.7) !important;
-    border-radius: 6px !important;
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
-    font-size: 12px !important;
-    padding: 13px 8px !important;
-    width: 100% !important;
-    font-weight: 400 !important;
-}
 .stDownloadButton button:hover {
-    background: rgba(249,115,22,0.08) !important;
-    border-color: rgba(249,115,22,0.25) !important;
+    background: rgba(249,115,22,0.07) !important;
+    border-color: rgba(249,115,22,0.22) !important;
     color: #f97316 !important;
 }
 
-/* -- TEXT INPUT -- */
+/* ── TEXT INPUT ── */
 .stTextInput input {
     background: rgba(255,255,255,0.04) !important;
     border: 1px solid rgba(255,255,255,0.07) !important;
-    border-radius: 6px !important;
-    color: rgba(255,255,255,0.85) !important;
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
-    font-size: 13px !important;
-    padding: 8px 12px !important;
+    border-radius: 8px !important; color: rgba(255,255,255,0.85) !important;
+    font-family: 'Syne', sans-serif !important; font-size: 13px !important; padding: 8px 12px !important;
 }
-.stTextInput input:focus { border-color: rgba(249,115,22,0.38) !important; outline: none !important; }
-.stTextInput label       { color: rgba(255,255,255,0.35) !important; font-size: 11px !important; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important; }
+.stTextInput input:focus { border-color: rgba(249,115,22,0.35) !important; outline: none !important; }
+.stTextInput label { color: rgba(255,255,255,0.3) !important; font-size: 10px !important; font-family: 'DM Mono', monospace !important; letter-spacing: 0.08em !important; text-transform: uppercase !important; }
 
-/* -- DRAWING LIBRARY CARDS -- */
+/* ── LIBRARY CARDS ── */
 .lib-card {
-    background: rgba(255,255,255,0.025);
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 8px;
-    padding: 12px 14px;
-    margin-bottom: 8px;
-    transition: border-color 0.12s;
+    background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+    transition: border-color 0.15s, background 0.15s;
 }
-.lib-card:hover  { border-color: rgba(249,115,22,0.22); }
-.lib-name        { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 4px; letter-spacing: -0.01em; }
-.lib-meta        { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 11px; color: rgba(255,255,255,0.25); }
-.lib-tag         { display: inline-block; background: rgba(249,115,22,0.08); border: 1px solid rgba(249,115,22,0.18); color: rgba(249,115,22,0.85); font-size: 10px; padding: 2px 7px; border-radius: 4px; margin: 3px 3px 0 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 500; letter-spacing: 0.02em; }
+.lib-card:hover { border-color: rgba(249,115,22,0.2); background: rgba(249,115,22,0.02); }
+.lib-name { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+.lib-meta { font-family: 'DM Mono', monospace; font-size: 10px; color: rgba(255,255,255,0.22); }
+.lib-tag  {
+    display: inline-block; background: rgba(249,115,22,0.07); border: 1px solid rgba(249,115,22,0.16);
+    color: rgba(249,115,22,0.8); font-size: 9px; padding: 2px 7px; border-radius: 3px;
+    margin: 3px 3px 0 0; font-family: 'DM Mono', monospace; font-weight: 500; letter-spacing: 0.04em;
+}
 
-/* -- ALERTS AND SPINNER -- */
-[data-testid="stAlert"]     { background: rgba(249,115,22,0.06) !important; border: 1px solid rgba(249,115,22,0.15) !important; border-radius: 6px !important; font-size: 12px !important; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important; }
-[data-testid="stSpinner"] p { color: rgba(255,255,255,0.22) !important; font-size: 11px !important; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important; }
+/* ── ALERTS & SPINNER ── */
+[data-testid="stAlert"] {
+    background: rgba(249,115,22,0.05) !important; border: 1px solid rgba(249,115,22,0.12) !important;
+    border-radius: 8px !important; font-size: 12px !important; font-family: 'Syne', sans-serif !important;
+}
+[data-testid="stSpinner"] p { color: rgba(255,255,255,0.25) !important; font-size: 11px !important; font-family: 'DM Mono', monospace !important; }
+[data-testid="stCheckbox"] label { font-family: 'Syne', sans-serif !important; font-size: 12px !important; color: rgba(255,255,255,0.55) !important; }
+[data-testid="stProgressBar"] > div > div { background: #f97316 !important; }
 
-/* -- FOOTER CREDIT -- */
-.footer-txt      { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9px; color: rgba(255,255,255,0.12); text-align: center; padding: 4px 0 2px; letter-spacing: 0.06em; text-transform: uppercase; }
-.footer-txt span { color: #f97316; }
+/* ── FOOTER ── */
+.footer-txt { font-family: 'DM Mono', monospace; font-size: 9px; color: rgba(255,255,255,0.08); text-align: center; padding: 4px 0 2px; letter-spacing: 0.08em; text-transform: uppercase; }
+.footer-txt span { color: rgba(249,115,22,0.4); }
 
-/* -- SPLASH SCREEN -- */
+/* ── SPLASH ── */
 #draft-ai-splash {
-    position: fixed;
-    inset: 0;
-    background: #0a0a0a;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    z-index: 999999;
-    animation: splashFade 0.5s ease 2.8s forwards;
+    position: fixed; inset: 0; background: #0b0b0b;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 999999; animation: splashFade 0.5s ease 2.8s forwards;
 }
-@keyframes splashFade {
-    from { opacity: 1; pointer-events: all; }
-    to   { opacity: 0; pointer-events: none; }
-}
-.splash-title {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    font-size: 48px;
-    font-weight: 700;
-    letter-spacing: -0.04em;
-    color: #fff;
-    margin-bottom: 10px;
-}
+@keyframes splashFade { from { opacity: 1; pointer-events: all; } to { opacity: 0; pointer-events: none; } }
+.splash-title { font-family: 'Syne', sans-serif; font-size: 56px; font-weight: 800; letter-spacing: -0.05em; color: #fff; margin-bottom: 6px; }
 .splash-title span { color: #f97316; }
-.splash-sub {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    font-size: 13px;
-    font-weight: 400;
-    color: rgba(255,255,255,0.3);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    animation: splashSubFade 0.6s ease 0.4s both;
+.splash-sub  { font-family: 'DM Mono', monospace; font-size: 11px; color: rgba(255,255,255,0.2); letter-spacing: 0.14em; text-transform: uppercase; animation: splashSubFade 0.6s ease 0.4s both; }
+@keyframes splashSubFade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.splash-bar-wrap { margin-top: 48px; width: 120px; height: 1px; background: rgba(255,255,255,0.08); overflow: hidden; }
+.splash-bar { height: 100%; background: #f97316; animation: splashBarFill 2.6s ease forwards; box-shadow: 0 0 12px rgba(249,115,22,0.6); }
+@keyframes splashBarFill { from { width: 0%; } to { width: 100%; } }
+
+/* ── SCROLLBAR — hidden everywhere ── */
+::-webkit-scrollbar { display: none !important; width: 0 !important; }
+* { scrollbar-width: none !important; }
+
+
+/* FINAL READABILITY PASS */
+.top-bar-file,
+.sb-sub,
+.sb-label,
+.sb-quota,
+.section-label,
+.chat-section-header,
+.chat-empty-title,
+.chat-empty-sub,
+.chip,
+div[data-testid="stHorizontalBlock"] div[data-testid="column"] > div > div > div > button[key^="chip"],
+.stButton > button,
+[data-testid="stDownloadButton"] button,
+.stDownloadButton button,
+.stTextArea textarea::placeholder,
+.stTextInput label,
+.lib-meta,
+.footer-txt,
+[data-testid="stSpinner"] p,
+[data-testid="stCheckbox"] label,
+[data-testid="stFileUploaderDropzoneInstructions"],
+.upload-hint,
+.upload-hint span {
+    color: rgba(255,255,255,0.92) !important;
+    opacity: 1 !important;
 }
-@keyframes splashSubFade {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-.splash-bar-wrap {
-    margin-top: 40px;
-    width: 160px;
-    height: 2px;
-    background: rgba(255,255,255,0.06);
-    border-radius: 2px;
-    overflow: hidden;
-}
-.splash-bar {
-    height: 100%;
-    background: #f97316;
-    border-radius: 2px;
-    animation: splashBarFill 2.6s ease forwards;
-}
-@keyframes splashBarFill {
-    from { width: 0%; }
-    to   { width: 100%; }
+.section-label::after,
+.chat-section-header::after {
+    background: rgba(255,255,255,0.16) !important;
 }
 
 </style>
@@ -869,8 +897,10 @@ for k, v in [
     ("current_drawing_name", None),
     ("title_block_data",     None),
     ("active_tab",           "analyze"),
-    ("show_revision_panel",  False), 
-    ("uploader_key",         0),  # Toggle for revision comparison UI
+    ("show_revision_panel",  False),
+    ("uploader_key",         0),
+    ("batch_results",        []),
+    ("batch_running",        False),
 ]:
     if k not in st.session_state:
         st.session_state[k] = v
@@ -893,6 +923,9 @@ with st.sidebar:
     st.markdown('<div class="sb-label">Navigation</div>', unsafe_allow_html=True)
     if st.button("Analyze Drawing", use_container_width=True):
         st.session_state.active_tab = "analyze"
+        st.rerun()
+    if st.button("Batch Analysis", use_container_width=True):
+        st.session_state.active_tab = "batch"
         st.rerun()
     if st.button("Drawing Library", use_container_width=True):
         st.session_state.active_tab = "library"
@@ -935,7 +968,7 @@ with st.sidebar:
                     st.session_state.active_tab            = "analyze"
                     st.rerun()
             with cd:
-                if st.button("?", key=f"del_{name}"):
+                if st.button("X", key=f"del_{name}"):
                     del st.session_state.saved_chats[name]
                     save_chats(st.session_state.saved_chats)
                     st.rerun()
@@ -945,34 +978,209 @@ with st.sidebar:
 # TOP NAV � App title with spinning gear + white/orange color split
 # ------------------------------------------------------------------
 
-tab_label = "ANALYZE" if st.session_state.active_tab == "analyze" else "LIBRARY"
-
-# Two-column nav row: hamburger button | title
-nav_col1, nav_col2 = st.columns([0.1, 12])
-
-with nav_col1:
-    # Style only this column's button as an orange hamburger icon
-    st.markdown("""<style>
-    div[data-testid="column"]:first-child .stButton > button {
-        background: rgba(249,115,22,0.15) !important;
-        border: 1px solid rgba(249,115,22,0.4) !important;
-        color: #f97316 !important;
-        border-radius: 8px !important;
-        font-size: 18px !important;
-        padding: 6px 10px !important;
-        width: auto !important;
-        margin-top: 4px;
-    }
-    </style>""", unsafe_allow_html=True)
-
-with nav_col2:
-    # Spinning gear + "Draft" in white, "AI" in orange
-    st.markdown("""
-<div style="display:flex; align-items:center; gap:10px; margin-left:0px; margin-top:4px;">
-    <span class="gear-spin" style="font-size:28px; line-height:1;">⚙️</span>
-    <span style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; font-size:30px; font-weight:700; color:#fff; letter-spacing:-0.04em;">Draft</span><span style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; font-size:30px; font-weight:700; color:#f97316; letter-spacing:-0.04em;"> AI</span>
+# ── TOP BAR ──
+_fname = st.session_state.get("current_drawing_name")
+_file_pill = (
+    f'''<div class="top-bar-file"><span class="dot">●</span>{_fname}</div>'''
+    if _fname else ""
+)
+st.markdown(f"""
+<div class="top-bar">
+  <div class="top-bar-left">
+    <div class="top-bar-logo">Draft<span> AI</span></div>
+    <div class="top-bar-badge">Beta</div>
+    {_file_pill}
+  </div>
+  <div style="font-family:DM Mono,monospace;font-size:10px;color:rgba(255,255,255,0.15);letter-spacing:0.06em;">
+    <span class="gear-spin" style="display:inline-block;margin-right:6px;">⚙</span>GPT-4o Vision
+  </div>
 </div>
 """, unsafe_allow_html=True)
+
+
+# ------------------------------------------------------------------
+# TAB: BATCH ANALYSIS
+# ------------------------------------------------------------------
+
+if st.session_state.active_tab == "batch":
+
+    st.markdown('<div class="section-label" style="margin-top:12px;">Batch Analysis</div>', unsafe_allow_html=True)
+    st.markdown("""
+<div style="background:rgba(249,115,22,0.05);border:1px solid rgba(249,115,22,0.15);border-radius:8px;padding:12px 16px;margin-bottom:14px;">
+    <div style="font-size:13px;color:rgba(255,255,255,0.85);font-family:Syne,sans-serif;">
+        Upload up to <b style="color:#f97316;">20 drawings</b> at once. Draft AI will analyze each one and generate a
+        comparison report — exportable as <b style="color:#f97316;">Excel</b> or <b style="color:#f97316;">PDF</b>.
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+    batch_files = st.file_uploader(
+        "Upload drawings for batch analysis",
+        type=["png", "jpg", "jpeg", "webp"],
+        accept_multiple_files=True,
+        label_visibility="collapsed",
+        key="batch_uploader",
+    )
+
+    # Analysis options
+    st.markdown('<div class="section-label" style="margin-top:10px;">Analysis Options</div>', unsafe_allow_html=True)
+    opt1, opt2, opt3 = st.columns(3)
+    with opt1:
+        opt_status    = st.checkbox("Production Status",      value=True)
+    with opt2:
+        opt_score     = st.checkbox("Manufacturability Score", value=True)
+    with opt3:
+        opt_cost      = st.checkbox("Cost Estimate",           value=True)
+
+    # File list preview
+    if batch_files:
+        st.markdown(f'<div class="section-label" style="margin-top:10px;">{len(batch_files)} drawings selected</div>', unsafe_allow_html=True)
+        if len(batch_files) > 20:
+            st.error("Maximum 20 drawings per batch. Please remove some files.")
+            batch_files = batch_files[:20]
+
+        # Show thumbnails grid
+        cols = st.columns(5)
+        for i, f in enumerate(batch_files):
+            with cols[i % 5]:
+                f.seek(0)
+                st.image(f.read(), caption=f.name[:18], use_container_width=True)
+                f.seek(0)
+
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+        run_col, clear_col = st.columns([3, 1])
+        with run_col:
+            run_batch = st.button("Run Batch Analysis", type="primary", use_container_width=True)
+        with clear_col:
+            if st.button("Clear", use_container_width=True):
+                st.session_state.batch_results = []
+                st.rerun()
+
+        if run_batch:
+            ip = get_client_ip()
+            st.session_state.batch_results = []
+            progress_bar  = st.progress(0, text="Starting batch analysis...")
+            status_text   = st.empty()
+            results_so_far = []
+
+            for idx, f in enumerate(batch_files):
+                pct  = int((idx / len(batch_files)) * 100)
+                progress_bar.progress(pct, text=f"Analyzing {idx+1}/{len(batch_files)}: {f.name[:30]}...")
+                status_text.markdown(
+                    f'<div style="font-size:11px;color:rgba(255,255,255,0.4);font-family:\'Syne\',Helvetica,Arial,sans-serif;">'
+                    f'Processing: {f.name}</div>',
+                    unsafe_allow_html=True
+                )
+                f.seek(0)
+                result = batch_analyze_drawing(f, filename=f.name)
+                results_so_far.append(result)
+                increment_rate_limit(ip)
+
+            progress_bar.progress(100, text="Analysis complete.")
+            status_text.empty()
+            st.session_state.batch_results = results_so_far
+            st.rerun()
+
+    # ── Results display ──
+    if st.session_state.batch_results:
+        results = st.session_state.batch_results
+        total   = len(results)
+        ready   = sum(1 for r in results if "Ready" in r.get("status",""))
+        needs   = sum(1 for r in results if "Revision" in r.get("status",""))
+        rework  = sum(1 for r in results if "Major" in r.get("status","") or "Failed" in r.get("status",""))
+        scores  = [r.get("manufacturability_score",0) for r in results if isinstance(r.get("manufacturability_score"),(int,float))]
+        avg_sc  = round(sum(scores)/len(scores)) if scores else "—"
+
+        # Stats row
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        m1, m2, m3, m4, m5 = st.columns(5)
+        for col, label, val, color in [
+            (m1, "Total",           total,   "#ffffff"),
+            (m2, "Production Ready", ready,  "#16a34a"),
+            (m3, "Needs Revision",  needs,   "#d97706"),
+            (m4, "Major Rework",    rework,  "#dc2626"),
+            (m5, "Avg Mfg. Score",  f"{avg_sc}/100", "#f97316"),
+        ]:
+            with col:
+                st.markdown(f"""
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);
+border-radius:8px;padding:12px 14px;text-align:center;">
+    <div style="font-size:22px;font-weight:700;color:{color};font-family:Syne,sans-serif;">{val}</div>
+    <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:Syne,sans-serif;text-transform:uppercase;letter-spacing:0.08em;">{label}</div>
+</div>""", unsafe_allow_html=True)
+
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+        # Drawing cards
+        st.markdown('<div class="section-label">Results</div>', unsafe_allow_html=True)
+        for i, r in enumerate(results, 1):
+            status = r.get("status","—")
+            score  = r.get("manufacturability_score","—")
+            if "Ready" in status:
+                status_color = "#16a34a"; status_bg = "rgba(22,163,74,0.08)"; border_c = "rgba(22,163,74,0.2)"
+            elif "Revision" in status:
+                status_color = "#d97706"; status_bg = "rgba(217,119,6,0.08)";  border_c = "rgba(217,119,6,0.2)"
+            else:
+                status_color = "#dc2626"; status_bg = "rgba(220,38,38,0.08)";  border_c = "rgba(220,38,38,0.2)"
+
+            issues_html = ""
+            for iss in r.get("critical_issues",[]):
+                issues_html += f'<div style="font-size:11px;color:#dc2626;margin-top:3px;">Critical: {iss}</div>'
+            for w in r.get("warnings",[]):
+                issues_html += f'<div style="font-size:11px;color:#d97706;margin-top:3px;">Warning: {w}</div>'
+
+            st.markdown(f"""
+<div style="background:{status_bg};border:1px solid {border_c};border-radius:8px;padding:12px 16px;margin-bottom:8px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div style="font-size:13px;font-weight:600;color:#fff;font-family:Syne,sans-serif;">
+            {i}. {r.get("drawing_name","—")}
+            <span style="font-size:10px;color:rgba(255,255,255,0.35);font-weight:400;margin-left:8px;">{r.get("part_number","")}</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <span style="font-size:10px;color:#f97316;font-family:Syne,sans-serif;">Score: <b>{score}/100</b></span>
+            <span style="font-size:10px;background:{status_bg};color:{status_color};border:1px solid {border_c};padding:2px 8px;border-radius:4px;font-family:Syne,sans-serif;">{status}</span>
+        </div>
+    </div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.5);font-family:Syne,sans-serif;margin-bottom:4px;">
+        {r.get("drawing_type","—")} &nbsp;·&nbsp; {r.get("complexity","—")} complexity &nbsp;·&nbsp;
+        Est. cost: <b style="color:rgba(255,255,255,0.7);">${r.get("estimated_cost_usd","—")}</b> &nbsp;·&nbsp;
+        Process: {r.get("recommended_process","—")} &nbsp;·&nbsp;
+        Tolerance risk: {r.get("tolerance_risk","—")}
+    </div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);font-family:Syne,sans-serif;">{r.get("summary","—")}</div>
+    {issues_html}
+</div>""", unsafe_allow_html=True)
+
+        # Export buttons
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Export Report</div>', unsafe_allow_html=True)
+        ex1, ex2, ex3 = st.columns(3)
+
+        with ex1:
+            excel_buf = generate_batch_excel(results)
+            if excel_buf:
+                st.download_button(
+                    "Download Excel Report",
+                    data=excel_buf,
+                    file_name=f"draft_ai_batch_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )
+        with ex2:
+            pdf_buf = generate_batch_pdf(results)
+            if pdf_buf:
+                st.download_button(
+                    "Download PDF Report",
+                    data=pdf_buf,
+                    file_name=f"draft_ai_batch_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+        with ex3:
+            if st.button("Clear Results", use_container_width=True):
+                st.session_state.batch_results = []
+                st.rerun()
 
 
 # ------------------------------------------------------------------
@@ -1036,7 +1244,7 @@ if st.session_state.active_tab == "library":
 
         st.markdown(
             f'<div style="font-size:11px;color:rgba(255,255,255,0.25);'
-            f'font-family:JetBrains Mono,monospace;margin-bottom:10px;">'
+            f'font-family:DM Mono,monospace;margin-bottom:10px;">'
             f'{len(filtered)} drawing{"s" if len(filtered) != 1 else ""} found</div>',
             unsafe_allow_html=True,
         )
@@ -1111,10 +1319,11 @@ else:
         key=f"uploader_{st.session_state.uploader_key}",
     )
 
-    # -- Show cached image only when no file is currently uploaded --
-    if not uploaded_file and st.session_state.get("current_drawing_image"):
-        img = base64.b64decode(st.session_state.current_drawing_image)
-        render_drawing_preview(img, "cached")
+    # -- If file is removed, clear cache immediately so stale image never shows --
+    if not uploaded_file:
+        st.session_state.current_drawing_image = None
+        st.session_state.current_drawing_name  = None
+        st.markdown('''<div class="upload-hint"><span>⬆</span> Drop your engineering drawing to begin &nbsp;·&nbsp; PNG · JPEG · WEBP · max 10 MB</div>''', unsafe_allow_html=True)
 
     file_ok = False
 
@@ -1140,35 +1349,35 @@ else:
             import base64
             st.session_state.current_drawing_image = base64.b64encode(img_bytes).decode("utf-8")
 
-    # -- Quick action buttons � Row 1: original 8 features --
-    st.markdown('<div class="section-label" style="margin-top:10px;">Quick Actions</div>', unsafe_allow_html=True)
-    c1, c2, c3, c4 = st.columns(4)
+    # -- Quick action buttons --
+    st.markdown('<div class="section-label" style="margin-top:8px;">Quick Analysis</div>', unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4, gap="small")
     with c1:
-        q1 = st.button("Dimensions",      use_container_width=True)
-        q5 = st.button("Summarize",       use_container_width=True)
+        q1 = st.button("📐  Dimensions",       use_container_width=True)
+        q5 = st.button("📝  Summarize",        use_container_width=True)
     with c2:
-        q2 = st.button("GD&T Analysis",   use_container_width=True)
-        q6 = st.button("Design Concerns", use_container_width=True)
+        q2 = st.button("🎯  GD&T Analysis",    use_container_width=True)
+        q6 = st.button("⚠️  Design Concerns",  use_container_width=True)
     with c3:
-        q3 = st.button("Material Rec.",   use_container_width=True)
-        q7 = st.button("Manufacturing",   use_container_width=True)
+        q3 = st.button("🧱  Material Rec.",    use_container_width=True)
+        q7 = st.button("🏭  Manufacturing",    use_container_width=True)
     with c4:
-        q4 = st.button("Title Block",     use_container_width=True)
-        q8 = st.button("View Type",       use_container_width=True)
+        q4 = st.button("🏷️  Title Block",      use_container_width=True)
+        q8 = st.button("👁️  View Type",        use_container_width=True)
 
-    # -- Advanced Features � Row 2: 5 new features --
-    st.markdown('<div class="section-label" style="margin-top:20px;">Advanced Analysis</div>', unsafe_allow_html=True)
-    a1, a2, a3, a4, a5 = st.columns(5)
+    # -- Advanced Features --
+    st.markdown('<div class="section-label" style="margin-top:10px;">Advanced Analysis</div>', unsafe_allow_html=True)
+    a1, a2, a3, a4, a5 = st.columns(5, gap="small")
     with a1:
-        qa1 = st.button("Tolerance Analysis",     use_container_width=True, help="Analyse dimensional chains and worst-case fits")
+        qa1 = st.button("⚖️  Tolerance",       use_container_width=True, help="Analyse dimensional chains and worst-case fits")
     with a2:
-        qa2 = st.button("DFM Analysis",            use_container_width=True, help="Score manufacturability 0-100 with breakdown")
+        qa2 = st.button("🔬  DFM Score",       use_container_width=True, help="Score manufacturability 0-100 with breakdown")
     with a3:
-        qa3 = st.button("Cost Breakdown",          use_container_width=True, help="Rough per-unit cost estimate across volumes")
+        qa3 = st.button("💰  Cost Est.",       use_container_width=True, help="Rough per-unit cost estimate across volumes")
     with a4:
-        qa4 = st.button("Dimensional Check",     use_container_width=True, help="Find missing dimensions, tolerances & annotations")
+        qa4 = st.button("🔍  Dim. Check",      use_container_width=True, help="Find missing dimensions, tolerances & annotations")
     with a5:
-        qa5 = st.button("Revision Diff",      use_container_width=True, help="Upload a second drawing to compare revisions")
+        qa5 = st.button("🔄  Rev. Diff",       use_container_width=True, help="Upload a second drawing to compare revisions")
 
     # -- Revision comparison panel (shown only when Compare Revisions is active) --
     rev_file_b = None
@@ -1179,7 +1388,7 @@ else:
         st.markdown(
             '<div style="background:rgba(249,115,22,0.05);border:1px solid rgba(249,115,22,0.2);'
             'border-radius:10px;padding:12px 16px;margin:8px 0;">'
-            '<div style="font-size:11px;color:#f97316;font-family:JetBrains Mono,monospace;'
+            '<div style="font-size:11px;color:#f97316;font-family:DM Mono,monospace;'
             'letter-spacing:1px;margin-bottom:8px;">REVISION COMPARISON � upload Rev B below</div>',
             unsafe_allow_html=True,
         )
@@ -1191,15 +1400,53 @@ else:
         )
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("<div style='height:1px;background:rgba(255,255,255,0.05);margin:12px 0'></div>", unsafe_allow_html=True)
+    # -- Chat section --
+    st.markdown('''<div class="chat-section-header">Conversation</div>''', unsafe_allow_html=True)
+
+    # Enable scroll only when chat has messages — no visible scrollbar
+    if st.session_state.messages_display:
+        st.markdown("""<style>
+[data-testid="stMain"] {
+    overflow-y: scroll !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+}
+[data-testid="stMain"]::-webkit-scrollbar { display: none !important; width: 0 !important; }
+.block-container {
+    height: auto !important;
+    max-height: unset !important;
+    overflow: visible !important;
+    padding-bottom: 220px !important;
+}
+</style>""", unsafe_allow_html=True)
+
+    # suggestion chip state
+    chip_question = None
 
     # -- Chat message display --
     if not st.session_state.messages_display:
-        # Empty state
-        st.markdown("""<div class="chat-empty">
-            <div style="font-size:34px;opacity:1;margin-bottom:8px;">⚙️</div>
-            <div style="color:#ffffff;">Upload a drawing and start asking</div>
-        </div>""", unsafe_allow_html=True)
+        st.markdown("""
+<div class="chat-empty">
+  <div class="chat-empty-icon">⚙️</div>
+  <div class="chat-empty-title">No analysis yet</div>
+  <div class="chat-empty-sub">Upload a drawing above, then tap a suggestion or ask anything</div>
+</div>""", unsafe_allow_html=True)
+        # Real clickable suggestion buttons
+        sc1, sc2, sc3, sc4 = st.columns(4, gap="small")
+        with sc1:
+            if st.button("Critical tolerances?", use_container_width=True, key="chip1"):
+                chip_question = "What are the critical tolerances in this drawing?"
+        with sc2:
+            if st.button("GD&T issues?", use_container_width=True, key="chip2"):
+                chip_question = "Find and explain all GD&T symbols and flag any issues."
+        with sc3:
+            if st.button("Production ready?", use_container_width=True, key="chip3"):
+                chip_question = "Is this drawing production ready? List any blockers."
+        with sc4:
+            if st.button("Suggest material", use_container_width=True, key="chip4"):
+                chip_question = "Suggest the best material for this part and explain why."
     else:
         for msg in st.session_state.messages_display:
             if msg["role"] == "user":
@@ -1234,26 +1481,33 @@ else:
                         unsafe_allow_html=True,
                     )
 
-    # Footer credit line
-    st.markdown(
-        '<div class="footer-txt" style="margin-bottom:8px;color:#ffffff;">Draft AI &mdash;Made With ♥️ by Rishi</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &mdash; made with ♥ by Rishi</div>', unsafe_allow_html=True)
 
-    # -- Sticky bottom input bar --
-    st.markdown('<div class="sticky-wrap"><div class="sticky-inner">', unsafe_allow_html=True)
+    # -- Bottom input bar --
+    st.markdown("""
+<div class="sticky-wrap"><div class="sticky-inner">
+<script>
+(function() {
+    // Move sticky-wrap to body so position:fixed works correctly
+    var el = document.querySelector('.sticky-wrap');
+    if (el && el.parentElement !== document.body) {
+        document.body.appendChild(el);
+    }
+})();
+</script>
+""", unsafe_allow_html=True)
 
     custom_q = st.text_area(
         "msg", placeholder="Ask anything about the drawing...",
         label_visibility="collapsed", height=52,
     )
-    col_ask, col_clear, col_pdf = st.columns([4, 0.9, 1], gap="small")
+    col_ask, col_clear, col_pdf = st.columns([4, 1, 1], gap="small")
 
     with col_ask:
         ask_btn = st.button("Analyze", type="primary", use_container_width=True)
 
     with col_clear:
-        if st.button("???Clear", use_container_width=True, help="Clear chat"):
+        if st.button("\U0001F5D1\uFE0F Clear", use_container_width=True, help="Clear chat"):
             st.session_state.chat_history     = []
             st.session_state.messages_display = []
             st.rerun()
@@ -1266,13 +1520,13 @@ else:
                 title_block_data=st.session_state.title_block_data,
             )
             st.download_button(
-                "??Export PDF", data=pdf_buf,
+                "\U0001F4C4 Export PDF", data=pdf_buf,
                 file_name="drawing_analysis.pdf",
                 mime="application/pdf",
                 use_container_width=True,
             )
         else:
-            st.button("??Export PDF", disabled=True, use_container_width=True)
+            st.button("\U0001F4C4 Export PDF", disabled=True, use_container_width=True)
 
     st.markdown('</div></div>', unsafe_allow_html=True)
 
@@ -1283,6 +1537,7 @@ else:
 
     question       = None
     special_action = None
+    if 'chip_question' not in dir(): chip_question = None
 
     if   q1:  special_action = "dimensions"
     elif q2:  special_action = "gdt"
@@ -1296,6 +1551,7 @@ else:
     elif qa2: special_action = "mfg_score"
     elif qa3: special_action = "cost_estimate"
     elif qa4: special_action = "missing_dims"
+    elif chip_question:            question = chip_question
     elif ask_btn and custom_q:     question = custom_q
     elif ask_btn and not custom_q: st.warning("Please type a question first.")
 
@@ -1402,4 +1658,3 @@ else:
                 st.session_state.chat_history.append(    {"role": "assistant", "content": answer})
                 persist_chat()
                 st.rerun()
-
