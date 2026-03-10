@@ -24,6 +24,9 @@ from utils import (
     batch_analyze_drawing,
     generate_batch_excel,
     generate_batch_pdf,
+    # -- pdf support --
+    pdf_to_image_bytes,
+    PDF2IMAGE_AVAILABLE,
 )
 import json, os, re, time, base64, shutil
 from datetime import datetime
@@ -1337,25 +1340,22 @@ else:
             if not is_valid:
                 st.error("Invalid file. Only PNG, JPEG, WEBP, and PDF files accepted.")
             elif file_type == "pdf":
-                # Convert PDF → PNG before preview and analysis
                 with st.spinner("Converting PDF drawing to image..."):
                     ok, result = pdf_to_image_bytes(uploaded_file)
                 if not ok:
                     st.error(f"Could not convert PDF: {result}")
                 else:
                     import io as _io
-                    png_buf      = _io.BytesIO(result)
+                    png_buf = _io.BytesIO(result)
                     png_buf.name = uploaded_file.name.rsplit(".", 1)[0] + ".png"
                     uploaded_file = png_buf
                     file_ok = True
                     st.success("PDF converted — analyzing first page.")
-
                     uploaded_file.seek(0)
                     img_bytes = uploaded_file.read()
                     uploaded_file.seek(0)
                     render_drawing_preview(img_bytes, uploaded_file.name)
                     st.session_state.current_drawing_name = uploaded_file.name
-                    import base64
                     st.session_state.current_drawing_image = base64.b64encode(img_bytes).decode("utf-8")
             else:
                 file_ok = True
@@ -1364,7 +1364,6 @@ else:
                 uploaded_file.seek(0)
                 render_drawing_preview(img_bytes, uploaded_file.name)
                 st.session_state.current_drawing_name = uploaded_file.name
-                import base64
                 st.session_state.current_drawing_image = base64.b64encode(img_bytes).decode("utf-8")
 
     # -- Quick action buttons --
