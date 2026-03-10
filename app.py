@@ -1236,7 +1236,7 @@ else:
 
     # Footer credit line
     st.markdown(
-        '<div class="footer-txt" style="margin-bottom:8px;color:#ffffff;">Draft AI &mdash;Made With ?? by Rishi</div>',
+        '<div class="footer-txt" style="margin-bottom:8px;color:#ffffff;">Draft AI &mdash;Made With ♥️ by Rishi</div>',
         unsafe_allow_html=True,
     )
 
