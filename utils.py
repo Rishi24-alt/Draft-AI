@@ -23,8 +23,33 @@ try:
 except ImportError:
     A4 = colors = ParagraphStyle = mm = SimpleDocTemplate = Paragraph = Spacer = HRFlowable = Table = TableStyle = TA_LEFT = TA_CENTER = None
 
+try:
+    from pdf2image import convert_from_bytes
+    PDF2IMAGE_AVAILABLE = True
+except ImportError:
+    convert_from_bytes = None
+    PDF2IMAGE_AVAILABLE = False
+
 if load_dotenv:
     load_dotenv()
+
+
+def pdf_to_image_bytes(pdf_file, page=0, dpi=200):
+    """Convert first page of a PDF to PNG bytes. Returns (success, bytes|error_str)."""
+    if not PDF2IMAGE_AVAILABLE:
+        return False, "pdf2image is not installed."
+    try:
+        pdf_file.seek(0)
+        pdf_bytes = pdf_file.read()
+        pages = convert_from_bytes(pdf_bytes, dpi=dpi, first_page=page+1, last_page=page+1)
+        if not pages:
+            return False, "Could not extract any pages from the PDF."
+        buf = io.BytesIO()
+        pages[0].save(buf, format="PNG")
+        buf.seek(0)
+        return True, buf.read()
+    except Exception as e:
+        return False, str(e)
 
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY")) if openai else None
 
