@@ -500,6 +500,11 @@ html, body {
     overflow: visible !important;
 }
 .stDeployButton, #MainMenu, footer { display: none !important; }
+[data-testid="stToolbar"] { display: none !important; }
+[data-testid="stDecoration"] { display: none !important; }
+#stDecoration { display: none !important; }
+[class*="viewerBadge"] { display: none !important; }
+.viewerBadge_container__r5tak { display: none !important; }
 
 /* ── FIXED TOP BAR ── */
 .top-bar {

@@ -1,0 +1,8 @@
+[browser]
+gatherUsageStats = false
+
+[client]
+showSidebarNavigation = false
+
+[ui]
+hideTopBar = true
