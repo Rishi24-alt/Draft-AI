@@ -861,8 +861,18 @@ def generate_batch_pdf(results):
     foot_s   = ParagraphStyle('F',  fontSize=7,  fontName='Helvetica',      textColor=colors.HexColor('#aaaaaa'), alignment=TA_CENTER)
 
     story = []
-    story.append(Paragraph("Draft AI", title_s))
-    story.append(Paragraph(f"Batch Analysis Report — {len(results)} drawings — {datetime.now().strftime('%d %B %Y, %I:%M %p')}", sub_s))
+    # Header block — no overlap
+    batch_hdr_data = [[
+        Paragraph('<font color="#f97316"><b>Draft AI</b></font>',
+            ParagraphStyle('BHL', fontSize=22, fontName='Helvetica-Bold', textColor=colors.HexColor('#f97316'), leading=26)),
+        Paragraph(datetime.now().strftime("%d %B %Y, %I:%M %p"),
+            ParagraphStyle('BHR', fontSize=8, fontName='Helvetica', textColor=colors.HexColor('#aaaaaa'), leading=12, alignment=2)),
+    ]]
+    batch_hdr_tbl = Table(batch_hdr_data, colWidths=[80*mm, None])
+    batch_hdr_tbl.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'MIDDLE'),('BOTTOMPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0)]))
+    story.append(batch_hdr_tbl)
+    story.append(Spacer(1, 2*mm))
+    story.append(Paragraph(f"Batch Analysis Report  —  {len(results)} drawings", sub_s))
     story.append(Spacer(1, 3*mm))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#f97316'), spaceAfter=5*mm))
 
@@ -920,7 +930,7 @@ def generate_batch_pdf(results):
 
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#dddddd')))
     story.append(Spacer(1, 3*mm))
-    story.append(Paragraph("Made with ♥ by Rishi  ·  Powered by GPT-4o Vision  ·  Draft AI", foot_s))
+    story.append(Paragraph("Draft AI  ·  Powered by GPT-4o Vision", foot_s))
 
     doc.build(story)
     buffer.seek(0)
@@ -975,17 +985,27 @@ def generate_pdf(messages_display, drawing_name="drawing", title_block_data=None
 
     story = []
 
-    story.append(Paragraph("Draft AI", title_style))
-    story.append(Paragraph("Engineering Drawing Analysis Report", sub_style))
-    story.append(Spacer(1, 1.5 * mm))
-    story.append(
+    # Header block — logo left, meta right, no overlap
+    header_data = [[
+        Paragraph('<font color="#f97316"><b>Draft AI</b></font>', ParagraphStyle('HL', fontSize=22, fontName='Helvetica-Bold', textColor=colors.HexColor('#f97316'), leading=26)),
         Paragraph(
-            f"Generated: {datetime.now().strftime('%d %B %Y, %I:%M %p')} | File: {drawing_name}",
-            meta_style,
-        )
-    )
-    story.append(Spacer(1, 4.5 * mm))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#f97316'), spaceAfter=6 * mm))
+            f'<font color="#888888">Generated: {datetime.now().strftime("%d %B %Y, %I:%M %p")}</font><br/>'
+            f'<font color="#aaaaaa">File: {drawing_name}</font>',
+            ParagraphStyle('HR', fontSize=8, fontName='Helvetica', textColor=colors.HexColor('#888888'), leading=12, alignment=2)
+        ),
+    ]]
+    header_tbl = Table(header_data, colWidths=[80*mm, None])
+    header_tbl.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ('TOPPADDING', (0,0), (-1,-1), 0),
+    ]))
+    story.append(header_tbl)
+    story.append(Spacer(1, 2*mm))
+    story.append(Paragraph("Engineering Drawing Analysis Report",
+        ParagraphStyle('SUB', fontSize=11, fontName='Helvetica', textColor=colors.HexColor('#555555'), spaceAfter=0)))
+    story.append(Spacer(1, 4*mm))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#f97316'), spaceAfter=6*mm))
 
     if title_block_data:
         story.append(Paragraph("TITLE BLOCK", sec_style))
@@ -1038,8 +1058,461 @@ def generate_pdf(messages_display, drawing_name="drawing", title_block_data=None
     story.append(Spacer(1, 7 * mm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#dddddd')))
     story.append(Spacer(1, 3.5 * mm))
-    story.append(Paragraph("Made with Draft AI | Powered by GPT-4o Vision | Rishi", foot_style))
+    story.append(Paragraph("Made with Draft AI | Powered by GPT-4o Vision", foot_style))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
+# ══════════════════════════════════════════════════════════════════
+# FEATURE: BOM GENERATOR
+# ══════════════════════════════════════════════════════════════════
+
+BOM_PROMPT = f"""You are a senior mechanical engineer and drawing interpreter specializing in assembly drawings and Bills of Materials.
+{FORMAT_RULES}
+Analyze this engineering drawing and extract every component or part visible.
+Return ONLY a valid JSON object — no explanation, no markdown, no backticks.
+
+Return exactly this structure:
+{{
+  "assembly_name": "Name from title block or inferred",
+  "drawing_number": "From title block or Not specified",
+  "revision": "From title block or Not specified",
+  "date": "From title block or Not specified",
+  "items": [
+    {{
+      "item_no": 1,
+      "part_number": "PN-001 or Not specified",
+      "description": "Hex Head Bolt",
+      "quantity": 4,
+      "material": "Steel AISI 1045 or Not specified",
+      "standard": "ISO 4014 or Not specified",
+      "finish": "Zinc plated or Not specified",
+      "notes": "Any special callout or blank"
+    }}
+  ],
+  "summary": "Brief assembly description and total item count"
+}}
+
+Rules:
+- item_no must be sequential integers starting at 1
+- quantity must be an integer
+- If the drawing has a BOM table/parts list already visible, extract it exactly
+- If it is a detail drawing with no BOM, analyze the part itself as a single item
+- If quantity is unclear from the drawing, use 1
+- Return ONLY the JSON. Nothing else."""
+
+
+def generate_bom(image_file):
+    """Extract BOM data from an assembly drawing. Returns parsed JSON dict."""
+    result = _call_vision_api(
+        image_file,
+        BOM_PROMPT,
+        "Extract the complete Bill of Materials from this engineering drawing. Return structured JSON only.",
+        max_tokens=2000
+    )
+    import json, re
+    clean = result.strip()
+    if "```" in clean:
+        clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
+    return json.loads(clean)
+
+
+def generate_bom_excel(bom_data):
+    """Generate a professional BOM Excel file from parsed BOM JSON."""
+    import io
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return None
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Bill of Materials"
+
+    ORANGE   = "F97316"
+    DARK     = "0D0D0D"
+    HEADER   = "1A1A1A"
+    ROW_A    = "FAFAFA"
+    ROW_B    = "FFFFFF"
+    ORANGE_L = "FFF7ED"
+
+    thin   = Side(style="thin", color="E5E7EB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # Title block
+    ws.merge_cells("A1:H1")
+    ws["A1"].value     = "BILL OF MATERIALS"
+    ws["A1"].font      = Font(name="Arial", size=14, bold=True, color=ORANGE)
+    ws["A1"].fill      = PatternFill("solid", fgColor=DARK)
+    ws["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[1].height = 30
+
+    meta = [
+        ("Assembly:", bom_data.get("assembly_name", "Not specified")),
+        ("Drawing No.:", bom_data.get("drawing_number", "Not specified")),
+        ("Revision:", bom_data.get("revision", "Not specified")),
+        ("Date:", bom_data.get("date", "Not specified")),
+        ("Generated:", datetime.now().strftime("%d %B %Y, %I:%M %p")),
+    ]
+    for r, (k, v) in enumerate(meta, 2):
+        ws.cell(row=r, column=1, value=k).font = Font(name="Arial", size=9, bold=True, color="555555")
+        ws.cell(row=r, column=2, value=v).font = Font(name="Arial", size=9, color="111111")
+        ws.row_dimensions[r].height = 15
+
+    headers    = ["ITEM", "PART NUMBER", "DESCRIPTION", "QTY", "MATERIAL", "STANDARD/SPEC", "FINISH", "NOTES"]
+    col_widths = [6, 18, 32, 6, 24, 20, 18, 28]
+    hrow = len(meta) + 2
+    for ci, (h, w) in enumerate(zip(headers, col_widths), 1):
+        cell = ws.cell(row=hrow, column=ci, value=h)
+        cell.font      = Font(name="Arial", size=9, bold=True, color="FFFFFF")
+        cell.fill      = PatternFill("solid", fgColor=HEADER)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border    = border
+        ws.column_dimensions[get_column_letter(ci)].width = w
+    ws.row_dimensions[hrow].height = 20
+
+    items = bom_data.get("items", [])
+    for ri, item in enumerate(items, 1):
+        row = hrow + ri
+        bg  = ROW_A if ri % 2 == 0 else ROW_B
+        vals = [
+            item.get("item_no", ri),
+            item.get("part_number", "Not specified"),
+            item.get("description", "Not specified"),
+            item.get("quantity", 1),
+            item.get("material", "Not specified"),
+            item.get("standard", "Not specified"),
+            item.get("finish", "Not specified"),
+            item.get("notes", ""),
+        ]
+        for ci, val in enumerate(vals, 1):
+            cell = ws.cell(row=row, column=ci, value=val)
+            cell.font      = Font(name="Arial", size=9)
+            cell.fill      = PatternFill("solid", fgColor=bg)
+            cell.border    = border
+            cell.alignment = Alignment(
+                horizontal="center" if ci in (1, 4) else "left",
+                vertical="center",
+                wrap_text=(ci in (3, 5, 8))
+            )
+        ws.row_dimensions[row].height = 16
+
+    # Totals row
+    total_row = hrow + len(items) + 1
+    ws.merge_cells(f"A{total_row}:C{total_row}")
+    ws.cell(row=total_row, column=1, value=f"TOTAL ITEMS: {len(items)}").font = Font(name="Arial", size=9, bold=True, color=ORANGE)
+    ws.cell(row=total_row, column=1).fill      = PatternFill("solid", fgColor=ORANGE_L)
+    ws.cell(row=total_row, column=1).alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    qty_formula = f"=SUM(D{hrow+1}:D{hrow+len(items)})"
+    ws.cell(row=total_row, column=4, value=qty_formula).font = Font(name="Arial", size=9, bold=True)
+    ws.cell(row=total_row, column=4).fill      = PatternFill("solid", fgColor=ORANGE_L)
+    ws.cell(row=total_row, column=4).alignment = Alignment(horizontal="center", vertical="center")
+    for ci in range(5, 9):
+        ws.cell(row=total_row, column=ci).fill = PatternFill("solid", fgColor=ORANGE_L)
+
+    foot_row = total_row + 2
+    ws.merge_cells(f"A{foot_row}:H{foot_row}")
+    ws.cell(row=foot_row, column=1, value="Generated by Draft AI  |  Powered by GPT-4o Vision").font = Font(name="Arial", size=7, color="AAAAAA", italic=True)
+    ws.cell(row=foot_row, column=1).alignment = Alignment(horizontal="center")
+
+
+
+def generate_bom_pdf(bom_data):
+    """Generate a clean PDF report from parsed BOM JSON."""
+    _require_reportlab()
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        rightMargin=18*mm, leftMargin=18*mm,
+        topMargin=18*mm, bottomMargin=18*mm
+    )
+    title_s  = ParagraphStyle('BT',  fontSize=22, fontName='Helvetica-Bold', textColor=colors.HexColor('#f97316'), leading=26)
+    sub_s    = ParagraphStyle('BS',  fontSize=10, fontName='Helvetica',      textColor=colors.HexColor('#555555'), spaceAfter=2)
+    label_s  = ParagraphStyle('BL',  fontSize=8,  fontName='Helvetica-Bold', textColor=colors.HexColor('#888888'), leading=11, spaceAfter=0)
+    meta_s   = ParagraphStyle('BM',  fontSize=8,  fontName='Helvetica',      textColor=colors.HexColor('#aaaaaa'), leading=11, alignment=2)
+    th_s     = ParagraphStyle('BTH', fontSize=8,  fontName='Helvetica-Bold', textColor=colors.white,               leading=11)
+    td_s     = ParagraphStyle('BTD', fontSize=8,  fontName='Helvetica',      textColor=colors.HexColor('#222222'), leading=11)
+    foot_s   = ParagraphStyle('BF',  fontSize=7,  fontName='Helvetica',      textColor=colors.HexColor('#aaaaaa'), alignment=TA_CENTER)
+
+    story = []
+    items = bom_data.get("items", [])
+    total_qty = sum(int(it.get("quantity", 1)) for it in items)
+
+    # Header — no overlap
+    hdr_data = [[
+        Paragraph('<font color="#f97316"><b>Draft AI</b></font>', title_s),
+        Paragraph(datetime.now().strftime("%d %B %Y, %I:%M %p"), meta_s),
+    ]]
+    hdr_tbl = Table(hdr_data, colWidths=[80*mm, None])
+    hdr_tbl.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'MIDDLE'),('BOTTOMPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0)]))
+    story.append(hdr_tbl)
+    story.append(Spacer(1, 2*mm))
+    story.append(Paragraph("Bill of Materials Report", sub_s))
+    story.append(Spacer(1, 3*mm))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#f97316'), spaceAfter=4*mm))
+
+    # Assembly metadata
+    meta_rows = [
+        ["Assembly", bom_data.get("assembly_name","—"),  "Drawing No.", bom_data.get("drawing_number","—")],
+        ["Revision",  bom_data.get("revision","—"),      "Date",        bom_data.get("date","—")],
+        ["Total Parts", str(len(items)),                 "Total Qty",   str(total_qty)],
+    ]
+    lbl_s2 = ParagraphStyle('L2', fontSize=8, fontName='Helvetica-Bold', textColor=colors.HexColor('#444444'))
+    val_s2 = ParagraphStyle('V2', fontSize=8, fontName='Helvetica',      textColor=colors.HexColor('#111111'))
+    meta_tbl_data = [[Paragraph(r[0],lbl_s2), Paragraph(str(r[1]),val_s2), Paragraph(r[2],lbl_s2), Paragraph(str(r[3]),val_s2)] for r in meta_rows]
+    meta_tbl = Table(meta_tbl_data, colWidths=[32*mm, 55*mm, 32*mm, 55*mm])
+    meta_tbl.setStyle(TableStyle([
+        ('FONTNAME',(0,0),(-1,-1),'Helvetica'), ('FONTSIZE',(0,0),(-1,-1),8),
+        ('ROWBACKGROUNDS',(0,0),(-1,-1),[colors.HexColor('#fafafa'),colors.HexColor('#f3f3f3')]),
+        ('GRID',(0,0),(-1,-1),0.4,colors.HexColor('#e0e0e0')),
+        ('PADDING',(0,0),(-1,-1),5),
+    ]))
+    story.append(meta_tbl)
+    story.append(Spacer(1, 5*mm))
+
+    # BOM table
+    headers = ["#", "Part No.", "Description", "Qty", "Material", "Standard", "Finish", "Notes"]
+    col_w   = [10*mm, 28*mm, 44*mm, 10*mm, 30*mm, 24*mm, 22*mm, 6*mm]
+    tbl_data = [[Paragraph(h, th_s) for h in headers]]
+    for i, item in enumerate(items):
+        row_s = ParagraphStyle(f'r{i}', fontSize=7.5, fontName='Helvetica',
+                               textColor=colors.HexColor('#222222'), leading=10)
+        tbl_data.append([
+            Paragraph(str(item.get("item_no", i+1)), row_s),
+            Paragraph(str(item.get("part_number","—")), row_s),
+            Paragraph(str(item.get("description","—")), row_s),
+            Paragraph(str(item.get("quantity",1)), row_s),
+            Paragraph(str(item.get("material","—")), row_s),
+            Paragraph(str(item.get("standard","—")), row_s),
+            Paragraph(str(item.get("finish","—")), row_s),
+            Paragraph(str(item.get("notes","")), row_s),
+        ])
+
+    bom_tbl = Table(tbl_data, colWidths=col_w, repeatRows=1)
+    row_colors = []
+    for ri in range(1, len(tbl_data)):
+        bg = colors.HexColor('#fafafa') if ri % 2 == 0 else colors.white
+        row_colors.append(('ROWBACKGROUNDS',(0,ri),(- 1,ri),[bg]))
+    bom_tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1a1a1a')),
+        ('TEXTCOLOR',  (0,0), (-1,0), colors.white),
+        ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE',   (0,0), (-1,0), 8),
+        ('GRID',       (0,0), (-1,-1), 0.4, colors.HexColor('#e0e0e0')),
+        ('PADDING',    (0,0), (-1,-1), 4),
+        ('VALIGN',     (0,0), (-1,-1), 'TOP'),
+        *row_colors,
+    ]))
+    story.append(bom_tbl)
+    story.append(Spacer(1, 4*mm))
+
+    # Summary note
+    if bom_data.get("summary"):
+        story.append(Paragraph(bom_data["summary"],
+            ParagraphStyle('SUM', fontSize=8, fontName='Helvetica', textColor=colors.HexColor('#555555'), leading=12, leftIndent=4)))
+        story.append(Spacer(1, 4*mm))
+
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#dddddd')))
+    story.append(Spacer(1, 3*mm))
+    story.append(Paragraph("Draft AI  ·  Bill of Materials  ·  Powered by GPT-4o Vision", foot_s))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+
+# ══════════════════════════════════════════════════════════════════
+# FEATURE: DRAWING STANDARDS CHECKER
+# ══════════════════════════════════════════════════════════════════
+
+STANDARDS_CHECKER_PROMPT = f"""You are a certified drawing checker with expertise in ASME Y14.5, ISO GPS, BS 8888, and industrial drawing standards.
+{FORMAT_RULES}
+Perform a comprehensive standards compliance check and return ONLY a valid JSON object — no explanation, no markdown, no backticks.
+
+Return exactly this structure:
+{{
+  "overall_score": 78,
+  "standard_detected": "ASME Y14.5 or ISO or BS 8888 or Unknown",
+  "verdict": "PASS or CONDITIONAL PASS or FAIL",
+  "checks": [
+    {{
+      "category": "Title Block",
+      "status": "PASS",
+      "score": 95,
+      "findings": ["Part name present", "Drawing number present"],
+      "violations": []
+    }}
+  ],
+  "critical_violations": ["List of FAIL-level issues only"],
+  "warnings": ["List of minor issues"],
+  "recommendations": ["Ordered list of top fixes"],
+  "summary": "One paragraph executive summary"
+}}
+
+Check ALL of the following categories:
+1. Title Block: part name, number, revision, scale, date, drawn by, material, tolerances
+2. Dimensioning: no duplicate dims, no missing dims, proper leader lines, dimension placement
+3. Tolerancing: general tolerance stated, functional tolerances present, values realistic
+4. GD&T Application: symbols correct per standard, datum references complete, FCF valid
+5. Views and Projections: sufficient views, correct projection angle, section callouts correct
+6. Annotations and Notes: surface finish symbols, thread callouts complete, weld symbols
+7. Line Types and Weights: visible, hidden, center, dimension, section lines correct
+8. Scale and Units: scale stated, consistent units throughout
+Return ONLY the JSON. Nothing else."""
+
+
+def check_drawing_standards(image_file):
+    """Full standards compliance check. Returns parsed JSON dict."""
+    result = _call_vision_api(
+        image_file,
+        STANDARDS_CHECKER_PROMPT,
+        "Perform a complete drawing standards compliance check on this engineering drawing. Return structured JSON only.",
+        max_tokens=2200
+    )
+    import json, re
+    clean = result.strip()
+    if "```" in clean:
+        clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
+    return json.loads(clean)
+
+
+# ══════════════════════════════════════════════════════════════════
+# FEATURE: TEAM WORKSPACE
+# ══════════════════════════════════════════════════════════════════
+
+import uuid
+
+WORKSPACE_FILE = "workspace.json"
+WORKSPACE_DIR  = "workspace_drawings"
+
+
+def _ensure_workspace_dir():
+    Path(WORKSPACE_DIR).mkdir(exist_ok=True)
+
+
+def load_workspace():
+    if os.path.exists(WORKSPACE_FILE):
+        try:
+            with open(WORKSPACE_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"projects": {}}
+
+
+def save_workspace(ws):
+    with open(WORKSPACE_FILE, "w") as f:
+        json.dump(ws, f, indent=2)
+
+
+def workspace_create_project(name, description="", created_by=""):
+    _ensure_workspace_dir()
+    ws  = load_workspace()
+    pid = str(uuid.uuid4())[:8]
+    ws["projects"][pid] = {
+        "id":          pid,
+        "name":        name,
+        "description": description,
+        "created_by":  created_by,
+        "created_at":  datetime.now().isoformat(),
+        "drawings":    {},
+        "members":     [created_by] if created_by else [],
+        "status":      "active",
+    }
+    save_workspace(ws)
+    return pid
+
+
+def workspace_add_drawing(project_id, uploaded_file, uploader, revision_note="Initial upload"):
+    """Add a new drawing or new revision to a project. Returns drawing_id."""
+    _ensure_workspace_dir()
+    ws = load_workspace()
+    if project_id not in ws["projects"]:
+        raise ValueError("Project not found")
+
+    proj = ws["projects"][project_id]
+    name = uploaded_file.name
+    ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
+    did  = f"{ts}_{name}"
+    dest = os.path.join(WORKSPACE_DIR, did)
+
+    uploaded_file.seek(0)
+    raw = uploaded_file.read()
+    with open(dest, "wb") as f:
+        f.write(raw)
+    uploaded_file.seek(0)
+
+    existing = [d for d in proj["drawings"].values() if d["original_name"] == name]
+    rev_num  = len(existing) + 1
+
+    proj["drawings"][did] = {
+        "id":            did,
+        "original_name": name,
+        "path":          dest,
+        "revision":      rev_num,
+        "uploaded_by":   uploader,
+        "uploaded_at":   datetime.now().isoformat(),
+        "revision_note": revision_note,
+        "status":        "pending_review",
+        "comments":      [],
+        "size_mb":       round(len(raw) / (1024 * 1024), 2),
+        "analysis":      None,
+    }
+    save_workspace(ws)
+    return did
+
+
+def workspace_add_comment(project_id, drawing_id, author, text, comment_type="comment"):
+    """Add a comment or review action to a drawing."""
+    ws   = load_workspace()
+    proj = ws["projects"].get(project_id)
+    if not proj:
+        return
+    drawing = proj["drawings"].get(drawing_id)
+    if not drawing:
+        return
+    drawing["comments"].append({
+        "id":     str(uuid.uuid4())[:8],
+        "author": author,
+        "text":   text,
+        "type":   comment_type,
+        "ts":     datetime.now().isoformat(),
+    })
+    if comment_type == "approval":
+        drawing["status"] = "approved"
+    elif comment_type == "rejection":
+        drawing["status"] = "rejected"
+    elif comment_type == "change_request":
+        drawing["status"] = "needs_changes"
+    save_workspace(ws)
+
+
+def workspace_set_analysis(project_id, drawing_id, analysis_text):
+    ws   = load_workspace()
+    proj = ws["projects"].get(project_id)
+    if proj and drawing_id in proj["drawings"]:
+        proj["drawings"][drawing_id]["analysis"] = analysis_text
+        save_workspace(ws)
+
+
+def workspace_get_drawing_history(project_id, original_name):
+    """Return all revisions of a filename, sorted oldest to newest."""
+    ws   = load_workspace()
+    proj = ws["projects"].get(project_id, {})
+    revs = [d for d in proj.get("drawings", {}).values() if d["original_name"] == original_name]
+    return sorted(revs, key=lambda d: d["revision"])
+
+
+def workspace_delete_project(project_id):
+    ws   = load_workspace()
+    proj = ws["projects"].get(project_id)
+    if proj:
+        for d in proj["drawings"].values():
+            try:
+                os.remove(d["path"])
+            except Exception:
+                pass
+        del ws["projects"][project_id]
+        save_workspace(ws)

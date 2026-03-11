@@ -1,7 +1,7 @@
 ﻿# +------------------------------------------------------------------+
 # �                        Draft AI � app.py                        �
 # �         AI-powered engineering drawing analysis tool            �
-# �                       by Rishi  �  2025                         �
+# |                            2025                                 |
 # +------------------------------------------------------------------+
 
 import streamlit as st
@@ -27,6 +27,10 @@ from utils import (
     # -- pdf support --
     pdf_to_image_bytes,
     PDF2IMAGE_AVAILABLE,
+    # -- BOM Generator --
+    generate_bom_pdf,
+    generate_bom,
+    generate_bom_excel,
 )
 import json, os, re, time, base64, shutil
 from datetime import datetime
@@ -38,13 +42,11 @@ from pathlib import Path
 # ------------------------------------------------------------------
 
 CHATS_FILE          = "saved_chats.json"     # Persisted chat sessions
-RATE_LIMIT_FILE     = "rate_limits.json"     # Per-IP request tracking
 LIBRARY_FILE        = "drawing_library.json" # Drawing library metadata
 LIBRARY_DIR         = "drawing_library"      # Folder for saved drawings
 
 MAX_CHATS           = 20   # Max saved chats before oldest is dropped
 MAX_FILE_SIZE_MB    = 10   # Max upload size in megabytes
-MAX_REQUESTS_PER_IP = 2    # Max AI requests per hour per user
 
 # Ensure drawing library folder exists on startup
 Path(LIBRARY_DIR).mkdir(exist_ok=True)
@@ -77,64 +79,6 @@ def check_file_size(f):
     return size / (1024 * 1024)
 
 
-def load_rate_limits():
-    """Load rate limit records from disk. Returns empty dict if missing."""
-    if os.path.exists(RATE_LIMIT_FILE):
-        try:
-            with open(RATE_LIMIT_FILE) as f:
-                return json.load(f)
-        except:
-            pass
-    return {}
-
-
-def save_rate_limits(d):
-    """Persist rate limit records to disk."""
-    with open(RATE_LIMIT_FILE, "w") as f:
-        json.dump(d, f)
-
-
-def get_client_ip():
-    """
-    Get the client's IP address from request headers.
-    Works on Streamlit Cloud (x-forwarded-for) and falls back to 'local'.
-    """
-    try:
-        h  = st.context.headers
-        ip = h.get("x-forwarded-for", h.get("x-real-ip", "local"))
-        return ip.split(",")[0].strip()
-    except:
-        return "local"
-
-
-def check_rate_limit(ip):
-    """
-    Check if this IP is allowed to make another request.
-    Resets the counter after 1 hour.
-    Returns (allowed: bool, remaining: int)
-    """
-    lim = load_rate_limits()
-    now = time.time()
-    if ip not in lim:
-        lim[ip] = {"count": 0, "window_start": now}
-    e = lim[ip]
-    if now - e["window_start"] > 3600:
-        e["count"]        = 0
-        e["window_start"] = now
-    if e["count"] >= MAX_REQUESTS_PER_IP:
-        save_rate_limits(lim)
-        return False, 0
-    return True, MAX_REQUESTS_PER_IP - e["count"]
-
-
-def increment_rate_limit(ip):
-    """Increment the request counter for this IP."""
-    lim = load_rate_limits()
-    now = time.time()
-    if ip not in lim:
-        lim[ip] = {"count": 0, "window_start": now}
-    lim[ip]["count"] += 1
-    save_rate_limits(lim)
 
 
 # ------------------------------------------------------------------
@@ -342,7 +286,7 @@ def render_dim_table(json_str):
 
         return f'''<div style="background:rgba(249,115,22,0.04);border:1px solid rgba(249,115,22,0.15);border-radius:10px;overflow:hidden;">
             <div style="padding:8px 14px;font-size:10px;font-family:DM Mono,monospace;color:#f97316;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid rgba(249,115,22,0.12);">
-                ?? DIMENSIONS DETECTED � {len(dims)} found
+                📐 DIMENSIONS DETECTED � {len(dims)} found
             </div>
             <table style="width:100%;border-collapse:collapse;">
                 <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
@@ -384,7 +328,7 @@ def render_title_block(raw):
     return f'''<div style="background:rgba(249,115,22,0.05);border:1px solid rgba(249,115,22,0.18);border-radius:10px;overflow:hidden;">
         <div style="padding:8px 14px;font-size:10px;font-family:DM Mono,monospace;color:#f97316;
                     letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid rgba(249,115,22,0.12);">
-            ??? TITLE BLOCK
+            🏷 TITLE BLOCK
         </div>
         <table style="width:100%;border-collapse:collapse;">{rows}</table>
     </div>'''
@@ -921,7 +865,6 @@ with st.sidebar:
 
     # App branding
     st.markdown('<div class="sb-logo">Draft <span>AI</span></div>', unsafe_allow_html=True)
-    st.markdown('<div class="sb-sub">by Rishi</div>', unsafe_allow_html=True)
 
     # Navigation tab switcher
     st.markdown('<div class="sb-label">Navigation</div>', unsafe_allow_html=True)
@@ -933,6 +876,9 @@ with st.sidebar:
         st.rerun()
     if st.button("Drawing Library", use_container_width=True):
         st.session_state.active_tab = "library"
+        st.rerun()
+    if st.button("BOM Generator", use_container_width=True):
+        st.session_state.active_tab = "bom"
         st.rerun()
 
     # Chat history section
@@ -1062,7 +1008,6 @@ if st.session_state.active_tab == "batch":
                 st.rerun()
 
         if run_batch:
-            ip = get_client_ip()
             st.session_state.batch_results = []
             progress_bar  = st.progress(0, text="Starting batch analysis...")
             status_text   = st.empty()
@@ -1079,7 +1024,6 @@ if st.session_state.active_tab == "batch":
                 f.seek(0)
                 result = batch_analyze_drawing(f, filename=f.name)
                 results_so_far.append(result)
-                increment_rate_limit(ip)
 
             progress_bar.progress(100, text="Analysis complete.")
             status_text.empty()
@@ -1186,12 +1130,254 @@ border-radius:8px;padding:12px 14px;text-align:center;">
                 st.session_state.batch_results = []
                 st.rerun()
 
+    # ── Quick question bar for batch tab ──
+    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sticky-wrap"><div class="sticky-inner">', unsafe_allow_html=True)
+    batch_q = st.text_area("batchq", placeholder="Ask anything about the drawing...", label_visibility="collapsed", height=52, key="batch_chat_input")
+    bq_col1, bq_col2 = st.columns([5, 1], gap="small")
+    with bq_col1:
+        bq_btn = st.button("Analyze", type="primary", use_container_width=True, key="batch_ask_btn")
+    with bq_col2:
+        if st.button("🗑️ Clear", use_container_width=True, key="batch_clear_btn", help="Clear chat"):
+            st.session_state.chat_history     = []
+            st.session_state.messages_display = []
+            st.rerun()
+    st.markdown('</div></div>', unsafe_allow_html=True)
+    if bq_btn and batch_q:
+        st.session_state.active_tab = "analyze"
+        st.session_state["_pending_question"] = batch_q
+        st.rerun()
+    elif bq_btn and not batch_q:
+        st.warning("Please type a question first.")
+
+
+# ------------------------------------------------------------------
+# TAB: BOM GENERATOR
+# ------------------------------------------------------------------
+
+elif st.session_state.active_tab == "bom":
+
+    st.markdown('<div class="section-label" style="margin-top:12px;">BOM Generator</div>', unsafe_allow_html=True)
+
+    # Hero banner
+    st.markdown("""
+<div style="background:linear-gradient(135deg,rgba(249,115,22,0.12) 0%,rgba(249,115,22,0.04) 100%);
+            border:1px solid rgba(249,115,22,0.25);border-radius:12px;padding:18px 22px;margin-bottom:18px;">
+    <div style="font-size:15px;font-weight:700;color:#fff;font-family:Syne,sans-serif;margin-bottom:6px;">
+        Auto-extract a Bill of Materials in seconds
+    </div>
+    <div style="font-size:13px;color:rgba(255,255,255,0.6);line-height:1.6;">
+        Upload any <b style="color:#f97316;">assembly drawing</b> — Draft AI reads every part balloon, title block,
+        and annotation to produce a structured BOM. Export to <b style="color:#f97316;">Excel</b> when done.
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # Upload zone
+    bom_file = st.file_uploader(
+        "Upload assembly drawing",
+        type=["png", "jpg", "jpeg", "webp", "pdf"],
+        label_visibility="collapsed",
+        key="bom_uploader",
+    )
+
+    if bom_file:
+        size_mb = check_file_size(bom_file)
+        is_valid, ftype = validate_file(bom_file)
+        if size_mb > MAX_FILE_SIZE_MB:
+            st.error(f"File too large: {size_mb:.1f} MB. Max {MAX_FILE_SIZE_MB} MB.")
+        elif not is_valid:
+            st.error("Invalid file type. PNG, JPEG, WEBP, or PDF only.")
+        else:
+            # PDF conversion
+            img_bytes = None
+            if ftype == "pdf":
+                if PDF2IMAGE_AVAILABLE:
+                    ok, result = pdf_to_image_bytes(bom_file)
+                    if ok:
+                        import io
+                        img_bytes = result
+                        bom_file  = io.BytesIO(result)
+                        bom_file.name = "drawing.png"
+                    else:
+                        st.error(f"PDF conversion failed: {result}")
+                else:
+                    st.warning("pdf2image not installed — PDF preview unavailable.")
+
+            # Preview + action
+            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+            prev_col, info_col = st.columns([3, 2])
+            with prev_col:
+                bom_file.seek(0)
+                st.image(bom_file.read() if img_bytes is None else img_bytes, use_container_width=True)
+                bom_file.seek(0)
+            with info_col:
+                st.markdown(f"""
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px 18px;margin-bottom:12px;">
+    <div style="font-size:10px;color:rgba(255,255,255,0.3);font-family:DM Mono,monospace;letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">File Info</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+        <div><span style="font-size:11px;color:rgba(255,255,255,0.4);">Name</span><br>
+             <span style="font-size:13px;color:#fff;font-weight:500;">{bom_file.name}</span></div>
+        <div><span style="font-size:11px;color:rgba(255,255,255,0.4);">Size</span><br>
+             <span style="font-size:13px;color:#f97316;font-weight:600;">{size_mb:.2f} MB</span></div>
+        <div><span style="font-size:11px;color:rgba(255,255,255,0.4);">Type</span><br>
+             <span style="font-size:13px;color:#fff;">{(ftype or 'image').upper()}</span></div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+                run_bom = st.button("Generate BOM", type="primary", use_container_width=True)
+                st.markdown("""
+<div style="font-size:11px;color:rgba(255,255,255,0.25);margin-top:8px;line-height:1.5;">
+    AI will scan all part balloons, title block fields, and annotations to build the BOM.
+</div>
+""", unsafe_allow_html=True)
+
+            if run_bom:
+                with st.spinner("🔍 Scanning drawing and extracting BOM..."):
+                    bom_file.seek(0)
+                    try:
+                        bom_data = generate_bom(bom_file)
+                        st.session_state["bom_result"] = bom_data
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"BOM extraction failed: {e}")
+
+    # ── Results ──────────────────────────────────────────────────────
+    if "bom_result" in st.session_state and st.session_state["bom_result"]:
+        bom   = st.session_state["bom_result"]
+        items = bom.get("items", [])
+
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+        # ── Stat cards row ────────────────────────────────────────────
+        total_qty = sum(int(it.get("quantity", 1)) for it in items)
+        materials = len(set(it.get("material", "—") for it in items if it.get("material") and it.get("material") != "—"))
+
+        s1, s2, s3, s4 = st.columns(4)
+        for col, label, value, sub in [
+            (s1, "ASSEMBLY",      bom.get("assembly_name", "—"),    None),
+            (s2, "DRAWING NO.",   bom.get("drawing_number", "—"),   None),
+            (s3, "UNIQUE PARTS",  str(len(items)),                  f"{total_qty} total qty"),
+            (s4, "REVISION",      bom.get("revision", "—"),         f"{materials} materials"),
+        ]:
+            with col:
+                st.markdown(f"""
+<div style="background:rgba(249,115,22,0.06);border:1px solid rgba(249,115,22,0.18);
+            border-radius:10px;padding:14px 16px;text-align:center;">
+    <div style="font-size:9px;color:rgba(255,255,255,0.35);font-family:DM Mono,monospace;
+                letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px;">{label}</div>
+    <div style="font-size:16px;font-weight:700;color:#f97316;font-family:Syne,sans-serif;
+                white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{value}">{value}</div>
+    {f'<div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:4px;">{sub}</div>' if sub else ''}
+</div>""", unsafe_allow_html=True)
+
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+        # ── BOM table ─────────────────────────────────────────────────
+        rows_html = ""
+        for i, item in enumerate(items):
+            bg = "rgba(255,255,255,0.015)" if i % 2 == 0 else "rgba(255,255,255,0.035)"
+            qty_val = item.get('quantity', 1)
+            rows_html += f"""<tr style="background:{bg};">
+                <td style="padding:10px 14px;color:#f97316;font-weight:700;font-size:14px;text-align:center;width:48px;">{item.get('item_no', i+1)}</td>
+                <td style="padding:10px 14px;color:rgba(255,255,255,0.45);font-size:11px;font-family:'DM Mono',monospace;white-space:nowrap;">{item.get('part_number','—')}</td>
+                <td style="padding:10px 14px;color:#fff;font-size:13px;font-weight:500;">{item.get('description','—')}</td>
+                <td style="padding:10px 14px;color:#f97316;font-weight:700;font-size:15px;text-align:center;width:52px;">{qty_val}</td>
+                <td style="padding:10px 14px;color:rgba(255,255,255,0.6);font-size:12px;">{item.get('material','—')}</td>
+                <td style="padding:10px 14px;color:rgba(255,255,255,0.4);font-size:11px;">{item.get('standard','—')}</td>
+                <td style="padding:10px 14px;color:rgba(255,255,255,0.35);font-size:11px;">{item.get('finish','—')}</td>
+                <td style="padding:10px 14px;color:rgba(255,255,255,0.25);font-size:11px;font-style:italic;">{item.get('notes','')}</td>
+            </tr>"""
+
+        st.markdown(f"""
+<div style="background:rgba(15,15,15,0.6);border:1px solid rgba(249,115,22,0.2);
+            border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.3);">
+    <div style="padding:10px 16px;background:rgba(249,115,22,0.08);border-bottom:1px solid rgba(249,115,22,0.15);
+                display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:11px;font-family:'DM Mono',monospace;color:#f97316;
+                     letter-spacing:.15em;text-transform:uppercase;font-weight:600;">📋 Bill of Materials</span>
+        <span style="font-size:11px;color:rgba(255,255,255,0.3);font-family:'DM Mono',monospace;">
+            {len(items)} parts · {total_qty} total qty
+        </span>
+    </div>
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;min-width:720px;">
+        <thead>
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
+            <th style="padding:8px 14px;text-align:center;font-size:9px;color:rgba(255,255,255,0.2);font-weight:600;letter-spacing:.1em;">ITEM</th>
+            <th style="padding:8px 14px;text-align:left;font-size:9px;color:rgba(255,255,255,0.2);font-weight:600;letter-spacing:.1em;">PART NO.</th>
+            <th style="padding:8px 14px;text-align:left;font-size:9px;color:rgba(255,255,255,0.2);font-weight:600;letter-spacing:.1em;">DESCRIPTION</th>
+            <th style="padding:8px 14px;text-align:center;font-size:9px;color:rgba(255,255,255,0.2);font-weight:600;letter-spacing:.1em;">QTY</th>
+            <th style="padding:8px 14px;text-align:left;font-size:9px;color:rgba(255,255,255,0.2);font-weight:600;letter-spacing:.1em;">MATERIAL</th>
+            <th style="padding:8px 14px;text-align:left;font-size:9px;color:rgba(255,255,255,0.2);font-weight:600;letter-spacing:.1em;">STANDARD</th>
+            <th style="padding:8px 14px;text-align:left;font-size:9px;color:rgba(255,255,255,0.2);font-weight:600;letter-spacing:.1em;">FINISH</th>
+            <th style="padding:8px 14px;text-align:left;font-size:9px;color:rgba(255,255,255,0.2);font-weight:600;letter-spacing:.1em;">NOTES</th>
+        </tr>
+        </thead>
+        <tbody>{rows_html}</tbody>
+    </table>
+    </div>
+    <div style="padding:10px 16px;font-size:12px;color:rgba(255,255,255,0.3);
+                border-top:1px solid rgba(255,255,255,0.05);font-style:italic;">
+        {bom.get('summary', '')}
+    </div>
+</div>""", unsafe_allow_html=True)
+
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+        # ── Export + actions row ──────────────────────────────────────
+        excel_buf = generate_bom_excel(bom)
+        pdf_buf   = generate_bom_pdf(bom)
+        dl_col, pdf_col, clear_col = st.columns([3, 3, 1])
+        with dl_col:
+            if excel_buf:
+                st.download_button(
+                    "⬇  Download BOM as Excel",
+                    data=excel_buf,
+                    file_name=f"BOM_{bom.get('assembly_name','drawing').replace(' ','_')}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="primary",
+                )
+        with pdf_col:
+            if pdf_buf:
+                st.download_button(
+                    "📄  Download BOM as PDF",
+                    data=pdf_buf,
+                    file_name=f"BOM_{bom.get('assembly_name','drawing').replace(' ','_')}_{datetime.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+        with clear_col:
+            if st.button("🗑 Clear", use_container_width=True, help="Remove current BOM result"):
+                del st.session_state["bom_result"]
+                st.rerun()
+
+    # ── Quick question bar for BOM tab ──
+    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sticky-wrap"><div class="sticky-inner">', unsafe_allow_html=True)
+    bom_q = st.text_area("bomq", placeholder="Ask anything about the drawing...", label_visibility="collapsed", height=52, key="bom_chat_input")
+    bomq_col1, bomq_col2 = st.columns([5, 1], gap="small")
+    with bomq_col1:
+        bomq_btn = st.button("Analyze", type="primary", use_container_width=True, key="bom_ask_btn")
+    with bomq_col2:
+        if st.button("🗑️ Clear", use_container_width=True, key="bom_clear_btn", help="Clear chat"):
+            st.session_state.chat_history     = []
+            st.session_state.messages_display = []
+            st.rerun()
+    st.markdown('</div></div>', unsafe_allow_html=True)
+    if bomq_btn and bom_q:
+        st.session_state.active_tab = "analyze"
+        st.session_state["_pending_question"] = bom_q
+        st.rerun()
+    elif bomq_btn and not bom_q:
+        st.warning("Please type a question first.")
 
 # ------------------------------------------------------------------
 # TAB: DRAWING LIBRARY
 # ------------------------------------------------------------------
 
-if st.session_state.active_tab == "library":
+elif st.session_state.active_tab == "library":
     lib = load_library()
 
     # -- Add new drawing to library --
@@ -1261,7 +1447,7 @@ if st.session_state.active_tab == "library":
                     if meta.get("notes") else ""
                 )
                 st.markdown(f'''<div class="lib-card">
-                    <div class="lib-name">?? {meta["name"]}</div>
+                    <div class="lib-name">📄 {meta["name"]}</div>
                     <div class="lib-meta">{meta["added"]}  �  {meta["size_mb"]} MB</div>
                     {tags_html}{notes_txt}
                 </div>''', unsafe_allow_html=True)
@@ -1498,7 +1684,7 @@ else:
                         unsafe_allow_html=True,
                     )
 
-    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &mdash; made with ♥ by Rishi</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>', unsafe_allow_html=True)
 
     # -- Bottom input bar --
     st.markdown("""
@@ -1555,6 +1741,9 @@ else:
     question       = None
     special_action = None
     if 'chip_question' not in dir(): chip_question = None
+    # Pick up questions forwarded from batch/BOM tabs
+    if st.session_state.get('_pending_question'):
+        question = st.session_state.pop('_pending_question')
 
     if   q1:  special_action = "dimensions"
     elif q2:  special_action = "gdt"
@@ -1591,11 +1780,6 @@ else:
         if not uploaded_file or not file_ok:
             st.warning("Please upload a valid engineering drawing first.")
         else:
-            ip = get_client_ip()
-            allowed, _ = check_rate_limit(ip)
-            if not allowed:
-                st.error("Rate limit reached: 2 requests/hour. Please try again later.")
-            else:
                 spinner_msg, user_label = ACTION_MAP[special_action]
                 with st.spinner(spinner_msg):
                     uploaded_file.seek(0)
@@ -1611,8 +1795,6 @@ else:
                     elif special_action == "titleblock":
                         result = extract_title_block(uploaded_file)
                         st.session_state.title_block_data = result
-
-                increment_rate_limit(ip)
 
                 # Add special prefix so the renderer knows which template to use
                 prefix     = {"dimensions": "__DIM__", "titleblock": "__TB__"}.get(special_action, "")
@@ -1637,41 +1819,29 @@ else:
             elif not rev_valid:
                 st.error("? Invalid Rev B file. Only PNG, JPEG, WEBP accepted.")
             else:
-                ip = get_client_ip()
-                allowed, _ = check_rate_limit(ip)
-                if not allowed:
-                    st.error("Rate limit reached: 2 requests/hour. Please try again later.")
-                else:
-                    with st.spinner("Comparing revisions..."):
-                        uploaded_file.seek(0)
-                        rev_file_b.seek(0)
-                        result = compare_revisions(uploaded_file, rev_file_b)
-                    increment_rate_limit(ip)
+                with st.spinner("Comparing revisions..."):
+                    uploaded_file.seek(0)
+                    rev_file_b.seek(0)
+                    result = compare_revisions(uploaded_file, rev_file_b)
 
-                    st.session_state.messages_display.append({"role": "user", "content": f"?? Compare Revisions: {uploaded_file.name} vs {rev_file_b.name}"})
-                    st.session_state.messages_display.append({"role": "ai",   "content": result})
-                    st.session_state.chat_history.append(    {"role": "user",      "content": "Compare drawing revisions"})
-                    st.session_state.chat_history.append(    {"role": "assistant", "content": result})
-                    st.session_state.show_revision_panel = False
-                    persist_chat()
-                    st.rerun()
+                st.session_state.messages_display.append({"role": "user", "content": f"🔄 Compare Revisions: {uploaded_file.name} vs {rev_file_b.name}"})
+                st.session_state.messages_display.append({"role": "ai",   "content": result})
+                st.session_state.chat_history.append(    {"role": "user",      "content": "Compare drawing revisions"})
+                st.session_state.chat_history.append(    {"role": "assistant", "content": result})
+                st.session_state.show_revision_panel = False
+                persist_chat()
+                st.rerun()
     # -- Free-text question handler --
     if question:
         if not uploaded_file or not file_ok:
             st.warning("Please upload a valid engineering drawing first.")
         else:
-            ip      = get_client_ip()
-            allowed = True  # Rate limiting bypassed for general questions
-            if not allowed:
-                pass
-            else:
-                with st.spinner("Analyzing..."):
-                    uploaded_file.seek(0)
-                    answer = analyze_drawing(uploaded_file, question, st.session_state.chat_history)
-                increment_rate_limit(ip)
-                st.session_state.messages_display.append({"role": "user",      "content": question})
-                st.session_state.messages_display.append({"role": "ai",        "content": answer})
-                st.session_state.chat_history.append(    {"role": "user",      "content": question})
-                st.session_state.chat_history.append(    {"role": "assistant", "content": answer})
-                persist_chat()
-                st.rerun()
+            with st.spinner("Analyzing..."):
+                uploaded_file.seek(0)
+                answer = analyze_drawing(uploaded_file, question, st.session_state.chat_history)
+            st.session_state.messages_display.append({"role": "user",      "content": question})
+            st.session_state.messages_display.append({"role": "ai",        "content": answer})
+            st.session_state.chat_history.append(    {"role": "user",      "content": question})
+            st.session_state.chat_history.append(    {"role": "assistant", "content": answer})
+            persist_chat()
+            st.rerun()
