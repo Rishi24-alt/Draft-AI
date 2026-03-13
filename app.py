@@ -695,11 +695,34 @@ section[data-testid="stSidebar"][aria-expanded="false"] {
     border-radius: 7px !important;
 }
             
-/* --- FORCE SIDEBAR BUTTON ALWAYS VISIBLE --- */
-[data-testid="stSidebarCollapseButton"],
-[data-testid="collapsedControl"] {
+/* override streamlit hover hiding */
+section[data-testid="stSidebar"] [data-testid="collapsedControl"],
+section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] {
     opacity: 1 !important;
     visibility: visible !important;
+    transform: none !important;
+}
+
+/* stop hover behaviour completely */
+section[data-testid="stSidebar"]:not(:hover) [data-testid="collapsedControl"],
+section[data-testid="stSidebar"]:not(:hover) [data-testid="stSidebarCollapseButton"] {
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+/* ensure button is fixed */
+[data-testid="stSidebarCollapseButton"] {
+    position: fixed !important;
+    top: 70px !important;
+    left: 262px !important;
+    z-index: 999999 !important;
+}
+
+[data-testid="collapsedControl"] {
+    position: fixed !important;
+    top: 70px !important;
+    left: 8px !important;
+    z-index: 999999 !important;
 }
 
 .sb-logo { font-family: 'Syne', sans-serif; font-size: 19px; font-weight: 800; letter-spacing: -0.04em; color: #fff; margin-top: -6px; margin-bottom: 1px; }
