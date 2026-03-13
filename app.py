@@ -649,7 +649,7 @@ section[data-testid="stSidebar"][aria-expanded="false"] {
 [data-testid="stSidebarCollapseButton"] {
     position: fixed !important;
     top: 70px !important;
-    left: 270px !important;   /* just outside sidebar */
+    left: 262px !important;   /* just outside sidebar */
     z-index: 99999 !important;
     width: 34px !important;
     height: 34px !important;
@@ -709,22 +709,6 @@ section[data-testid="stSidebar"]:not(:hover) [data-testid="stSidebarCollapseButt
     opacity: 1 !important;
     visibility: visible !important;
 }
-
-/* ensure button is fixed */
-[data-testid="stSidebarCollapseButton"] {
-    position: fixed !important;
-    top: 70px !important;
-    left: 262px !important;
-    z-index: 999999 !important;
-}
-
-[data-testid="collapsedControl"] {
-    position: fixed !important;
-    top: 70px !important;
-    left: 8px !important;
-    z-index: 999999 !important;
-}
-
 .sb-logo { font-family: 'Syne', sans-serif; font-size: 19px; font-weight: 800; letter-spacing: -0.04em; color: #fff; margin-top: -6px; margin-bottom: 1px; }
 .sb-logo span { color: #f97316; }
 .sb-sub  { font-size: 9px; color: rgba(255,255,255,0.15); font-family: 'DM Mono', monospace; letter-spacing: 0.1em; margin-bottom: 20px; text-transform: uppercase; }
