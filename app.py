@@ -645,27 +645,24 @@ section[data-testid="stSidebar"][aria-expanded="false"] {
 }
 
 /* ── Native collapse/expand button — fixed position, always visible ── */
+/* Sidebar collapse button - always visible */
 [data-testid="stSidebarCollapseButton"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
     position: fixed !important;
-    top: 68px !important;
-    left: 268px !important;
+    top: 70px !important;
+    left: 270px !important;   /* just outside sidebar */
     z-index: 99999 !important;
     width: 34px !important;
     height: 34px !important;
-    
-  
+    display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-
 }
+
+/* When sidebar is collapsed */
 [data-testid="collapsedControl"] {
     display: flex !important;
     visibility: visible !important;
-    opacity: 0 !important;
+    opacity: 1 !important;   /* was 0 */
     position: fixed !important;
     top: 68px !important;
     left: 8px !important;
@@ -674,8 +671,8 @@ section[data-testid="stSidebar"][aria-expanded="false"] {
     height: 34px !important;
     align-items: center !important;
     justify-content: center !important;
-
 }
+
 [data-testid="stSidebarCollapseButton"] button,
 [data-testid="collapsedControl"] button {
     width: 34px !important;
@@ -696,6 +693,13 @@ section[data-testid="stSidebar"][aria-expanded="false"] {
     color: #f97316 !important;
     background: rgba(249,115,22,0.08) !important;
     border-radius: 7px !important;
+}
+            
+/* --- FORCE SIDEBAR BUTTON ALWAYS VISIBLE --- */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"] {
+    opacity: 1 !important;
+    visibility: visible !important;
 }
 
 .sb-logo { font-family: 'Syne', sans-serif; font-size: 19px; font-weight: 800; letter-spacing: -0.04em; color: #fff; margin-top: -6px; margin-bottom: 1px; }
