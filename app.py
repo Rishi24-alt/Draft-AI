@@ -1,4 +1,4 @@
-﻿# +------------------------------------------------------------------+
+# +------------------------------------------------------------------+
 # �                        Draft AI � app.py                        �
 # �         AI-powered engineering drawing analysis tool            �
 # |                            2025                                 |
@@ -39,6 +39,7 @@ from datetime import datetime
 from pathlib import Path
 
 
+
 # ------------------------------------------------------------------
 # CONSTANTS
 # ------------------------------------------------------------------
@@ -50,8 +51,52 @@ LIBRARY_DIR         = "drawing_library"      # Folder for saved drawings
 MAX_CHATS           = 20   # Max saved chats before oldest is dropped
 MAX_BATCH_FILES     = 5    # Max drawings per batch analysis
 MAX_FILE_SIZE_MB    = 10   # Max upload size in megabytes
-MAX_REQUESTS_PER_IP = 2    # Max AI requests per hour per IP
 RATE_LIMIT_FILE     = "rate_limits.json"
+
+# ── TIER CONFIGURATION ──
+TIER_CONFIG = {
+    "free": {
+        "label":         "Free",
+        "color":         "rgba(255,255,255,0.4)",
+        "bg":            "rgba(255,255,255,0.06)",
+        "border":        "rgba(255,255,255,0.1)",
+        "max_requests":  2,
+        "window_seconds": 3600,       # 1 hour
+        "window_label":  "hour",
+        "batch_limit":   5,
+        "library_limit": 10,
+    },
+    "pro": {
+        "label":         "Pro",
+        "color":         "#f97316",
+        "bg":            "rgba(249,115,22,0.1)",
+        "border":        "rgba(249,115,22,0.3)",
+        "max_requests":  50,
+        "window_seconds": 86400,      # 24 hours
+        "window_label":  "day",
+        "batch_limit":   20,
+        "library_limit": 9999,
+    },
+    "enterprise": {
+        "label":         "Enterprise",
+        "color":         "#a855f7",
+        "bg":            "rgba(168,85,247,0.1)",
+        "border":        "rgba(168,85,247,0.3)",
+        "max_requests":  9999,
+        "window_seconds": 86400,
+        "window_label":  "day",
+        "batch_limit":   100,
+        "library_limit": 9999,
+    },
+}
+
+def get_user_tier():
+    """Get the current user's plan tier from session state."""
+    return st.session_state.get("user_tier", "free")
+
+def get_tier_config():
+    """Get the config dict for the current user's tier."""
+    return TIER_CONFIG[get_user_tier()]
 
 # Ensure drawing library folder exists on startup
 Path(LIBRARY_DIR).mkdir(exist_ok=True)
@@ -114,21 +159,24 @@ def get_client_ip():
 def check_rate_limit(ip):
     """
     Check if this IP is allowed to make another request.
-    Resets counter after 1 hour. Returns (allowed: bool, remaining: int).
+    Uses tier-based limits. Returns (allowed: bool, remaining: int, mins_left: int).
     """
+    tier = get_tier_config()
+    max_req = tier["max_requests"]
+    window  = tier["window_seconds"]
     lim = load_rate_limits()
     now = time.time()
     if ip not in lim:
         lim[ip] = {"count": 0, "window_start": now}
     e = lim[ip]
-    if now - e["window_start"] > 3600:
+    if now - e["window_start"] > window:
         e["count"]        = 0
         e["window_start"] = now
-    if e["count"] >= MAX_REQUESTS_PER_IP:
+    if e["count"] >= max_req:
         save_rate_limits(lim)
-        mins_left = max(1, int((3600 - (now - e["window_start"])) / 60))
+        mins_left = max(1, int((window - (now - e["window_start"])) / 60))
         return False, 0, mins_left
-    return True, MAX_REQUESTS_PER_IP - e["count"], 0
+    return True, max_req - e["count"], 0
 
 
 def increment_rate_limit(ip):
@@ -139,6 +187,49 @@ def increment_rate_limit(ip):
         lim[ip] = {"count": 0, "window_start": now}
     lim[ip]["count"] += 1
     save_rate_limits(lim)
+
+
+def render_upgrade_prompt(mins_left):
+    """Show a professional SaaS upgrade prompt when rate limit is hit."""
+    tier = get_tier_config()
+    st.markdown(f"""
+<div style="background:linear-gradient(135deg,rgba(249,115,22,0.08),rgba(249,115,22,0.02));
+            border:1px solid rgba(249,115,22,0.25);border-radius:14px;padding:20px 24px;margin:8px 0;
+            position:relative;overflow:hidden;">
+    <div style="position:absolute;top:0;left:0;right:0;height:2px;
+                background:linear-gradient(90deg,transparent,#f97316,transparent);"></div>
+    <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:#fff;margin-bottom:8px;">
+        You've reached your {tier['label']} plan limit
+    </div>
+    <div style="font-family:'Syne',sans-serif;font-size:13px;color:rgba(255,255,255,0.7);line-height:1.7;margin-bottom:16px;">
+        Upgrade to <b style="color:#f97316;">Pro</b> for 50 analyses/day, batch processing,
+        Excel/PDF export, and priority processing.
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);
+                    border-radius:8px;padding:10px 12px;text-align:center;">
+            <div style="font-size:10px;color:rgba(255,255,255,0.3);font-family:'DM Mono',monospace;
+                        letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;">Free</div>
+            <div style="font-size:14px;color:rgba(255,255,255,0.4);font-weight:600;">2 / hour</div>
+        </div>
+        <div style="flex:1;min-width:140px;background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.25);
+                    border-radius:8px;padding:10px 12px;text-align:center;">
+            <div style="font-size:10px;color:#f97316;font-family:'DM Mono',monospace;
+                        letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;">Pro</div>
+            <div style="font-size:14px;color:#f97316;font-weight:700;">50 / day</div>
+        </div>
+        <div style="flex:1;min-width:140px;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.2);
+                    border-radius:8px;padding:10px 12px;text-align:center;">
+            <div style="font-size:10px;color:#a855f7;font-family:'DM Mono',monospace;
+                        letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;">Enterprise</div>
+            <div style="font-size:14px;color:#a855f7;font-weight:700;">Unlimited</div>
+        </div>
+    </div>
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,0.25);letter-spacing:0.04em;">
+        \u23f1 Try again in ~{mins_left} min &nbsp;\u00b7&nbsp; Pro starts at $29/mo
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 
 
@@ -243,33 +334,50 @@ def persist_chat():
     if len(st.session_state.saved_chats) > MAX_CHATS:
         del st.session_state.saved_chats[next(iter(st.session_state.saved_chats))]
     save_chats(st.session_state.saved_chats)
-
-
 def render_navigation_panel(key_prefix="nav", include_saved_chats=True):
-    # Logo row with collapse button
-    st.markdown('<div class="sb-logo">Draft <span>AI</span></div>', unsafe_allow_html=True)
+    # ── Logo ──
+    st.markdown('''
+    <div style="padding:2px 0 18px;">
+        <div class="sb-logo">Draft <span>AI</span></div>
+        <div style="font-family:'DM Mono',monospace;font-size:9px;color:rgba(255,255,255,0.15);
+                    letter-spacing:0.12em;text-transform:uppercase;margin-top:2px;">
+            Engineering Intelligence
+        </div>
+    </div>
+    <div style="height:1px;background:linear-gradient(90deg,rgba(249,115,22,0.25),rgba(255,255,255,0.04),transparent);
+                margin-bottom:18px;"></div>
+    ''', unsafe_allow_html=True)
 
-    st.markdown('<div class="sb-label">Navigation</div>', unsafe_allow_html=True)
+    # ── Navigation ──
     nav_items = [
-        ("Analyze Drawing", "analyze"),
-        ("Batch Analysis", "batch"),
-        ("Drawing Library", "library"),
-        ("BOM Generator", "bom"),
-        ("Standards Checker", "standards"),
+        ("📐  Analyze Drawing", "analyze"),
+        ("📦  Batch Analysis",  "batch"),
+        ("📂  Drawing Library",  "library"),
+        ("📋  BOM Generator",   "bom"),
+        ("✅  Standards Check",  "standards"),
     ]
     for label, tab in nav_items:
         if st.button(label, key=f"{key_prefix}_{tab}", use_container_width=True):
             st.session_state.active_tab = tab
             st.rerun()
 
-    st.markdown('<div class="sb-label">Chat History</div>', unsafe_allow_html=True)
-    count = len(st.session_state.saved_chats)
-    st.markdown(f'<div class="sb-quota"><span>{count}</span> / {MAX_CHATS} chats saved</div>', unsafe_allow_html=True)
-    _ip = get_client_ip()
-    _, _rem, _ = check_rate_limit(_ip)
-    st.markdown(f'<div class="sb-quota">Requests left: <span>{_rem}</span> / {MAX_REQUESTS_PER_IP} this hour</div>', unsafe_allow_html=True)
 
-    if st.button("+ New Chat", key=f"{key_prefix}_new_chat", use_container_width=True):
+    # ── Divider ──
+    st.markdown('''
+    <div style="height:1px;background:rgba(255,255,255,0.05);margin:4px 0 16px;"></div>
+    ''', unsafe_allow_html=True)
+
+    # ── Chat History ──
+    st.markdown('''
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <span style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:0.14em;
+                     text-transform:uppercase;color:rgba(255,255,255,0.2);">Chat History</span>
+        <span style="font-family:'DM Mono',monospace;font-size:9px;color:rgba(249,115,22,0.5);
+                     letter-spacing:0.04em;">''' + str(len(st.session_state.saved_chats)) + f''' / {MAX_CHATS}</span>
+    </div>
+    ''', unsafe_allow_html=True)
+
+    if st.button("＋  New Chat", key=f"{key_prefix}_new_chat", use_container_width=True):
         st.session_state.chat_history = []
         st.session_state.messages_display = []
         st.session_state.current_drawing_name = None
@@ -281,13 +389,12 @@ def render_navigation_panel(key_prefix="nav", include_saved_chats=True):
     if not include_saved_chats:
         return
 
-    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     if not st.session_state.saved_chats:
-        st.markdown(
-            '<div style="font-size:11px;color:rgba(255,255,255,0.12);'
-            'font-family:\'JetBrains Mono\',monospace;padding:4px 0;">No chats yet.</div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown('''
+        <div style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,0.1);
+                    padding:8px 0;text-align:center;">No chats yet</div>
+        ''', unsafe_allow_html=True)
         return
 
     for name in reversed(list(st.session_state.saved_chats.keys())):
@@ -302,14 +409,15 @@ def render_navigation_panel(key_prefix="nav", include_saved_chats=True):
                 st.session_state.active_tab = "analyze"
                 st.rerun()
         with cd:
-            if st.button("X", key=f"{key_prefix}_del_{name}", use_container_width=True):
+            if st.button("✕", key=f"{key_prefix}_del_{name}", use_container_width=True):
                 del st.session_state.saved_chats[name]
                 save_chats(st.session_state.saved_chats)
                 st.rerun()
 
 
+
 # ------------------------------------------------------------------
-# MESSAGE FORMATTER � Convert AI text to styled HTML bubbles
+# MESSAGE FORMATTER  Convert AI text to styled HTML bubbles
 # ------------------------------------------------------------------
 
 def fmt(text):
@@ -681,25 +789,27 @@ section[data-testid="stSidebar"][aria-expanded="false"] {
 .sb-quota      { font-family: 'DM Mono', monospace; font-size: 10px; color: rgba(255,255,255,0.15); margin-bottom: 8px; padding-left: 2px; }
 .sb-quota span { color: #f97316; font-weight: 600; }
 
-/* Sidebar nav — ghost buttons with active-state left bar */
+/* Sidebar nav — hide the Streamlit nav buttons (handled by custom HTML above them) */
 [data-testid="stSidebar"] .stButton > button {
     background: transparent !important;
-    border: 1px solid transparent !important;
-    color: rgba(255,255,255,0.4) !important;
-    border-radius: 7px !important;
+    border: 1px solid rgba(255,255,255,0.06) !important;
+    color: rgba(255,255,255,0.35) !important;
+    border-radius: 8px !important;
     font-family: 'Syne', sans-serif !important;
     font-size: 12px !important; font-weight: 500 !important;
     padding: 8px 12px !important; width: 100% !important;
     text-align: left !important; margin-bottom: 1px !important;
-    transition: all 0.15s !important;
+    transition: all 0.2s !important;
     height: auto !important; min-height: unset !important; max-height: unset !important;
     justify-content: flex-start !important;
 }
 [data-testid="stSidebar"] .stButton > button:hover {
-    background: rgba(249,115,22,0.07) !important;
-    border-color: rgba(249,115,22,0.12) !important;
+    background: rgba(249,115,22,0.06) !important;
+    border-color: rgba(249,115,22,0.15) !important;
     color: #f97316 !important;
 }
+
+
 
 /* ── GEAR SPIN ── */
 @keyframes spinGear { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -1001,6 +1111,168 @@ div[data-testid="stHorizontalBlock"] div[data-testid="column"] > div > div > div
     background: rgba(255,255,255,0.16) !important;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   DARK THEME OVERRIDES — Force ALL Streamlit widgets dark
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Text area (chat input) — ultra-aggressive ── */
+.stTextArea textarea,
+.stTextArea > div > div > textarea,
+textarea[data-testid="stTextAreaWidget"],
+div[data-testid="stTextArea"] textarea,
+.stTextArea div,
+div[data-testid="stTextArea"] > div,
+div[data-testid="stTextArea"] > div > div {
+    background: rgba(11,11,11,0.95) !important;
+    background-color: rgba(11,11,11,0.95) !important;
+}
+.stTextArea textarea,
+.stTextArea > div > div > textarea,
+textarea[data-testid="stTextAreaWidget"],
+div[data-testid="stTextArea"] textarea {
+    color: rgba(255,255,255,0.9) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    border-radius: 10px !important;
+    caret-color: #f97316 !important;
+}
+.stTextArea textarea:focus,
+textarea[data-testid="stTextAreaWidget"]:focus {
+    border-color: rgba(249,115,22,0.4) !important;
+    box-shadow: 0 0 0 1px rgba(249,115,22,0.15) !important;
+    background: rgba(255,255,255,0.04) !important;
+}
+.stTextArea textarea::placeholder {
+    color: rgba(255,255,255,0.2) !important;
+}
+
+/* ── Text input (search boxes, etc.) ── */
+.stTextInput input,
+input[data-testid="stTextInputWidget"],
+.stTextInput > div > div > input {
+    background: rgba(255,255,255,0.03) !important;
+    color: rgba(255,255,255,0.9) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    border-radius: 8px !important;
+    caret-color: #f97316 !important;
+}
+.stTextInput input:focus,
+input[data-testid="stTextInputWidget"]:focus {
+    border-color: rgba(249,115,22,0.4) !important;
+    box-shadow: 0 0 0 1px rgba(249,115,22,0.15) !important;
+    background: rgba(255,255,255,0.04) !important;
+}
+.stTextInput input::placeholder {
+    color: rgba(255,255,255,0.2) !important;
+}
+
+/* ── Buttons (non-primary — Clear, Export, analysis chips) ── */
+.stButton > button:not([kind="primary"]),
+button[data-testid="baseButton-secondary"],
+button[data-testid="baseButton-minimal"] {
+    background: rgba(255,255,255,0.04) !important;
+    color: rgba(255,255,255,0.8) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+}
+.stButton > button:not([kind="primary"]):hover,
+button[data-testid="baseButton-secondary"]:hover {
+    background: rgba(249,115,22,0.08) !important;
+    border-color: rgba(249,115,22,0.2) !important;
+    color: #f97316 !important;
+}
+
+/* ── File uploader — dark dropzone ── */
+[data-testid="stFileUploader"] section,
+[data-testid="stFileUploader"] section > div,
+[data-testid="stFileUploadDropzone"],
+[data-testid="stFileUploader"] > section > button {
+    background: rgba(255,255,255,0.02) !important;
+    background-color: rgba(255,255,255,0.02) !important;
+}
+[data-testid="stFileUploadDropzone"] {
+    border: 1.5px dashed rgba(249,115,22,0.18) !important;
+    background: rgba(249,115,22,0.02) !important;
+    border-radius: 10px !important;
+}
+[data-testid="stFileUploadDropzone"]:hover {
+    border-color: rgba(249,115,22,0.4) !important;
+    background: rgba(249,115,22,0.04) !important;
+}
+/* Browse files button inside uploader */
+[data-testid="stFileUploadDropzone"] button,
+[data-testid="baseButton-secondary"] {
+    background: rgba(249,115,22,0.08) !important;
+    border: 1px solid rgba(249,115,22,0.22) !important;
+    color: #f97316 !important;
+}
+/* Small text inside dropzone */
+[data-testid="stFileUploadDropzone"] small,
+[data-testid="stFileUploadDropzone"] span {
+    color: rgba(255,255,255,0.25) !important;
+}
+
+/* ── Selectbox / dropdown ── */
+.stSelectbox > div > div,
+[data-testid="stSelectbox"] > div > div,
+.stMultiSelect > div > div {
+    background: rgba(255,255,255,0.03) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    color: rgba(255,255,255,0.9) !important;
+}
+
+/* ── Download button ── */
+[data-testid="stDownloadButton"] button,
+.stDownloadButton button {
+    background: rgba(255,255,255,0.04) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    color: rgba(255,255,255,0.8) !important;
+}
+[data-testid="stDownloadButton"] button:hover,
+.stDownloadButton button:hover {
+    background: rgba(249,115,22,0.08) !important;
+    border-color: rgba(249,115,22,0.2) !important;
+    color: #f97316 !important;
+}
+
+/* ── Chips / Suggestion buttons ── */
+[data-testid="stChatMessage"] button,
+button[kind="secondary"] {
+    background: rgba(255,255,255,0.04) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    color: rgba(255,255,255,0.7) !important;
+}
+
+/* ── Number input ── */
+.stNumberInput input {
+    background: rgba(255,255,255,0.03) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    color: rgba(255,255,255,0.9) !important;
+}
+
+/* ── Checkbox ── */
+[data-testid="stCheckbox"] label span {
+    color: rgba(255,255,255,0.8) !important;
+}
+
+/* ── Global: kill any remaining white backgrounds on inner divs ── */
+[data-testid="stForm"],
+[data-testid="stExpander"] details,
+[data-testid="stExpander"] summary {
+    background: transparent !important;
+    border-color: rgba(255,255,255,0.06) !important;
+}
+
+/* ── Remove white background from Streamlit's main container sections ── */
+.main .block-container,
+[data-testid="stAppViewBlockContainer"] {
+    background: transparent !important;
+}
+
+/* ── Uploaded file info row ── */
+[data-testid="stFileUploader"] [data-testid="stMarkdown"],
+[data-testid="stFileUploader"] small {
+    color: rgba(255,255,255,0.4) !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1032,6 +1304,7 @@ for k, v in [
     ("batch_results",        []),
     ("batch_running",        False),
     ("standards_result",     None),
+    ("user_tier",            "free"),
 ]:
     if k not in st.session_state:
         st.session_state[k] = v
@@ -1040,12 +1313,17 @@ if "saved_chats" not in st.session_state:
     st.session_state.saved_chats = load_chats()
 
 
+
+
+
 # ------------------------------------------------------------------
 # SIDEBAR
 # ------------------------------------------------------------------
 
 with st.sidebar:
     render_navigation_panel("sidebar")
+
+
 
 # Re-inject sidebar toggle on every rerun so it works across all tabs.
 # Removing and re-adding the button ensures onclick always calls the live iframe.
@@ -1092,11 +1370,13 @@ _file_pill = (
     f'''<div class="top-bar-file"><span class="dot">●</span>{_fname}</div>'''
     if _fname else ""
 )
+_tier = get_tier_config()
+_tier_pill = f'''<div class="top-bar-badge" style="background:{_tier['bg']};border-color:{_tier['border']};color:{_tier['color']};">{_tier['label']}</div>'''
 st.markdown(f"""
 <div class="top-bar">
   <div class="top-bar-left">
     <div class="top-bar-logo">Draft<span> AI</span></div>
-    <div class="top-bar-badge">Beta</div>
+    {_tier_pill}
     {_file_pill}
   </div>
   <div style="font-family:DM Mono,monospace;font-size:10px;color:rgba(255,255,255,0.15);letter-spacing:0.06em;">
@@ -1289,7 +1569,7 @@ border-radius:8px;padding:12px 14px;text-align:center;">
                 st.rerun()
 
     # ── Quick question bar for batch tab ──
-    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;·&nbsp; © 2026 &nbsp;·&nbsp; Pricing &nbsp;·&nbsp; Support</div>', unsafe_allow_html=True)
     st.markdown('<div class="sticky-wrap"><div class="sticky-inner">', unsafe_allow_html=True)
     batch_q = st.text_area("batchq", placeholder="Ask anything about the drawing...", label_visibility="collapsed", height=52, key="batch_chat_input")
     bq_col1, bq_col2 = st.columns([5, 1], gap="small")
@@ -1512,7 +1792,7 @@ elif st.session_state.active_tab == "bom":
                 st.rerun()
 
     # ── Quick question bar for BOM tab ──
-    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;·&nbsp; © 2026 &nbsp;·&nbsp; Pricing &nbsp;·&nbsp; Support</div>', unsafe_allow_html=True)
     st.markdown('<div class="sticky-wrap"><div class="sticky-inner">', unsafe_allow_html=True)
     bom_q = st.text_area("bomq", placeholder="Ask anything about the drawing...", label_visibility="collapsed", height=52, key="bom_chat_input")
     bomq_col1, bomq_col2 = st.columns([5, 1], gap="small")
@@ -1710,21 +1990,7 @@ elif st.session_state.active_tab == "standards":
                 ip = get_client_ip()
                 allowed, remaining, mins_left = check_rate_limit(ip)
                 if not allowed:
-                    st.markdown(f"""
-<div style="background:rgba(249,115,22,0.07);border:1px solid rgba(249,115,22,0.25);border-radius:12px;padding:16px 20px;margin:8px 0;">
-    <div style="font-size:15px;margin-bottom:6px;">🪫 Whoa, easy there!</div>
-    <div style="font-family:'Syne',sans-serif;font-size:13px;color:rgba(255,255,255,0.85);line-height:1.7;margin-bottom:10px;">
-        You've hit the <b style="color:#f97316;">2 requests/hour</b> free limit.<br>
-        Honestly? We're running on <b>dreams and ramen</b> over here. 🍜<br>
-        Every API call costs us money and our wallets are crying. 😭<br><br>
-        If you're enjoying Draft AI, consider buying us a coffee — or just a cup of water at this point.<br>
-        We'll use it to raise your limit, we promise. XOXO 🧡
-    </div>
-    <div style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:0.05em;">
-        ⏱ Try again in ~{mins_left} min &nbsp;·&nbsp; Or donate and get more — coming soon
-    </div>
-</div>
-""", unsafe_allow_html=True)
+                    render_upgrade_prompt(mins_left)
                 else:
                     with st.spinner("Checking drawing against standards..."):
                         std_file.seek(0)
@@ -1825,7 +2091,7 @@ elif st.session_state.active_tab == "standards":
             st.session_state.standards_result = None
             st.rerun()
 
-    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;·&nbsp; © 2026 &nbsp;·&nbsp; Pricing &nbsp;·&nbsp; Support</div>', unsafe_allow_html=True)
 
 
 # ------------------------------------------------------------------
@@ -2016,7 +2282,7 @@ else:
                         unsafe_allow_html=True,
                     )
 
-    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;·&nbsp; © 2026 &nbsp;·&nbsp; Pricing &nbsp;·&nbsp; Support</div>', unsafe_allow_html=True)
 
     # -- Bottom input bar --
     st.markdown("""
@@ -2115,21 +2381,7 @@ else:
             ip = get_client_ip()
             allowed, remaining, mins_left = check_rate_limit(ip)
             if not allowed:
-                st.markdown(f"""
-<div style="background:rgba(249,115,22,0.07);border:1px solid rgba(249,115,22,0.25);border-radius:12px;padding:16px 20px;margin:8px 0;">
-    <div style="font-size:15px;margin-bottom:6px;">🪫 Whoa, easy there!</div>
-    <div style="font-family:'Syne',sans-serif;font-size:13px;color:rgba(255,255,255,0.85);line-height:1.7;margin-bottom:10px;">
-        You've hit the <b style="color:#f97316;">2 requests/hour</b> free limit.<br>
-        Honestly? We're running on <b>dreams and ramen</b> over here. 🍜<br>
-        Every API call costs us money and our wallets are crying. 😭<br><br>
-        If you're enjoying Draft AI, consider buying us a coffee — or just a cup of water at this point.<br>
-        We'll use it to raise your limit, we promise. XOXO 🧡
-    </div>
-    <div style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:0.05em;">
-        ⏱ Try again in ~{mins_left} min &nbsp;·&nbsp; Or donate and get more — coming soon
-    </div>
-</div>
-""", unsafe_allow_html=True)
+                render_upgrade_prompt(mins_left)
             else:
                 spinner_msg, user_label = ACTION_MAP[special_action]
                 with st.spinner(spinner_msg):
@@ -2188,21 +2440,7 @@ else:
             ip = get_client_ip()
             allowed, remaining, mins_left = check_rate_limit(ip)
             if not allowed:
-                st.markdown(f"""
-<div style="background:rgba(249,115,22,0.07);border:1px solid rgba(249,115,22,0.25);border-radius:12px;padding:16px 20px;margin:8px 0;">
-    <div style="font-size:15px;margin-bottom:6px;">🪫 Whoa, easy there!</div>
-    <div style="font-family:'Syne',sans-serif;font-size:13px;color:rgba(255,255,255,0.85);line-height:1.7;margin-bottom:10px;">
-        You've hit the <b style="color:#f97316;">2 requests/hour</b> free limit.<br>
-        Honestly? We're running on <b>dreams and ramen</b> over here. 🍜<br>
-        Every API call costs us money and our wallets are crying. 😭<br><br>
-        If you're enjoying Draft AI, consider buying us a coffee — or just a cup of water at this point.<br>
-        We'll use it to raise your limit, we promise. XOXO 🧡
-    </div>
-    <div style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:0.05em;">
-        ⏱ Try again in ~{mins_left} min &nbsp;·&nbsp; Or donate and get more — coming soon
-    </div>
-</div>
-""", unsafe_allow_html=True)
+                render_upgrade_prompt(mins_left)
             else:
                 with st.spinner("Analyzing..."):
                     uploaded_file.seek(0)

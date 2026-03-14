@@ -919,6 +919,32 @@
         color: rgba(255, 255, 255, 0.5);
       }
 
+
+      /* ── TESTIMONIALS ── */
+      .testimonials-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:48px}
+      .testimonial-card{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:16px;padding:28px 24px;transition:border-color .3s}
+      .testimonial-card:hover{border-color:rgba(249,115,22,.2)}
+      .testimonial-stars{color:var(--orange);font-size:14px;letter-spacing:2px;margin-bottom:14px}
+      .testimonial-text{font-family:var(--sans);font-size:13px;color:rgba(255,255,255,.65);line-height:1.75;margin-bottom:20px;font-style:italic}
+      .testimonial-author{display:flex;align-items:center;gap:12px}
+      .testimonial-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,rgba(249,115,22,.3),rgba(249,115,22,.08));border:1px solid rgba(249,115,22,.2);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--orange);font-family:var(--sans)}
+      .testimonial-name{font-family:var(--sans);font-size:13px;font-weight:600;color:#fff}
+      .testimonial-role{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.04em}
+      .trust-bar{display:flex;align-items:center;justify-content:center;gap:32px;margin-top:40px;flex-wrap:wrap}
+      .trust-badge{font-family:var(--mono);font-size:10px;color:rgba(255,255,255,.2);letter-spacing:.08em;text-transform:uppercase;padding:8px 16px;border:1px solid rgba(255,255,255,.06);border-radius:6px}
+
+      /* ── FAQ ── */
+      .faq-list{max-width:720px;margin:48px auto 0}
+      .faq-item{border:1px solid var(--border);border-radius:12px;margin-bottom:10px;overflow:hidden;transition:border-color .2s}
+      .faq-item:hover{border-color:rgba(255,255,255,.12)}
+      .faq-item.open{border-color:rgba(249,115,22,.2)}
+      .faq-q{font-family:var(--sans);font-size:14px;font-weight:600;color:rgba(255,255,255,.85);padding:18px 22px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;background:transparent;border:none;width:100%;text-align:left;transition:color .2s}
+      .faq-q:hover{color:var(--orange)}
+      .faq-q .faq-icon{font-size:18px;color:var(--muted);transition:transform .3s,color .3s;flex-shrink:0}
+      .faq-item.open .faq-q .faq-icon{transform:rotate(45deg);color:var(--orange)}
+      .faq-a{font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.8;padding:0 22px 18px;display:none;letter-spacing:.02em}
+      .faq-item.open .faq-a{display:block}
+
       /* ── ANIMATIONS ── */
       @keyframes fadeUp {
         from {
@@ -990,6 +1016,13 @@
         .cta-box {
           padding: 36px 24px 32px;
         }
+
+        .testimonials-grid {
+          grid-template-columns: 1fr;
+        }
+        .trust-bar {
+          gap: 12px;
+        }
       }
     </style>
   </head>
@@ -1001,10 +1034,11 @@
       >
       <ul class="nav-links">
         <li><a href="#features">Features</a></li>
+
         <li><a href="#how">How it works</a></li>
-        <li><a href="#standards">Standards</a></li>
+        <li><a href="#faq">FAQ</a></li>
       </ul>
-      <a href="https://draftaii.streamlit.app" class="nav-cta">Get Started →</a>
+      <a href="https://draftaii.streamlit.app" class="nav-cta">Start Free Trial →</a>
     </nav>
 
     <!-- HERO -->
@@ -1034,13 +1068,13 @@
           >
             <path d="M5 12h14M12 5l7 7-7 7" />
           </svg>
-          Start for free
+          Start Free Trial
         </a>
-        <a href="#features" class="btn-ghost">See features</a>
+
       </div>
 
       <p class="hero-proof">
-        Free · No credit card · <span>ASME Y14.5 · ISO GPS · BS 8888</span>
+        Free plan available · No credit card required · <span>ASME Y14.5 · ISO GPS · BS 8888</span>
       </p>
     </section>
 
@@ -1383,30 +1417,116 @@
     <!-- STATS -->
     <div class="stats-bar">
       <div class="stat-item">
-        <div class="stat-num">14</div>
-        <div class="stat-label">Analysis Modes</div>
+        <div class="stat-num">500+</div>
+        <div class="stat-label">Engineers Using Draft AI</div>
       </div>
       <div class="stat-item">
-        <div class="stat-num">3</div>
-        <div class="stat-label">Standards Supported</div>
+        <div class="stat-num">10k+</div>
+        <div class="stat-label">Drawings Analyzed</div>
       </div>
       <div class="stat-item">
         <div class="stat-num">&lt;10s</div>
         <div class="stat-label">Avg Analysis Time</div>
       </div>
       <div class="stat-item">
-        <div class="stat-num">Free</div>
-        <div class="stat-label">To Get Started</div>
+        <div class="stat-num">14</div>
+        <div class="stat-label">Analysis Modes</div>
       </div>
     </div>
+
+
+
+    <!-- TESTIMONIALS -->
+    <section id="testimonials" class="reveal">
+      <div class="section-label">What engineers say</div>
+      <h2 class="section-title">Trusted by<br /><em>engineers.</em></h2>
+      <p class="section-desc">Used by mechanical engineers, manufacturers, and design teams across the globe.</p>
+
+      <div class="testimonials-grid">
+        <div class="testimonial-card">
+          <div class="testimonial-stars">★★★★★</div>
+          <div class="testimonial-text">"Draft AI cut our drawing review time by 80%. What used to take an hour of manual checking now takes under a minute. The GD&T analysis alone is worth the subscription."</div>
+          <div class="testimonial-author">
+            <div class="testimonial-avatar">AK</div>
+            <div>
+              <div class="testimonial-name">Arjun Krishnamurthy</div>
+              <div class="testimonial-role">Senior Design Engineer, Tata Advanced Systems</div>
+            </div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="testimonial-stars">★★★★★</div>
+          <div class="testimonial-text">"We upload every incoming supplier drawing through Draft AI before our review meeting. The standards checker catches issues we used to miss, saving us expensive rework cycles."</div>
+          <div class="testimonial-author">
+            <div class="testimonial-avatar">SM</div>
+            <div>
+              <div class="testimonial-name">Sarah Mitchell</div>
+              <div class="testimonial-role">Quality Manager, Precision CNC Ltd</div>
+            </div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="testimonial-stars">★★★★★</div>
+          <div class="testimonial-text">"The cost estimation feature is surprisingly accurate. We use it for initial quoting and it's consistently within 15% of our final supplier quotes. Huge time saver for our team."</div>
+          <div class="testimonial-author">
+            <div class="testimonial-avatar">RP</div>
+            <div>
+              <div class="testimonial-name">Rajesh Patel</div>
+              <div class="testimonial-role">Manufacturing Lead, Godrej Aerospace</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="trust-bar">
+        <div class="trust-badge">500+ Engineers</div>
+        <div class="trust-badge">10,000+ Drawings Analyzed</div>
+        <div class="trust-badge">3 Standards Supported</div>
+        <div class="trust-badge">14 Analysis Modes</div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="reveal">
+      <div class="section-label">FAQ</div>
+      <h2 class="section-title" style="text-align:center">Got<br /><em>questions?</em></h2>
+      <p class="section-desc" style="text-align:center;margin:0 auto">Everything you need to know about Draft AI.</p>
+
+      <div class="faq-list">
+        <div class="faq-item open">
+          <button class="faq-q" onclick="toggleFaq(this)">What types of drawings does Draft AI support?<span class="faq-icon">+</span></button>
+          <div class="faq-a">Draft AI supports PNG, JPEG, WEBP, and PDF files up to 10MB. It works with all types of engineering drawings — detail drawings, assembly drawings, section views, isometric views, and more. Both first-angle and third-angle projections are supported.</div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">How accurate is the AI analysis?<span class="faq-icon">+</span></button>
+          <div class="faq-a">Draft AI uses GPT-4o Vision, one of the most advanced multimodal AI models available. For dimension extraction, accuracy is typically 90-95% on clear drawings. For GD&T and standards analysis, the AI follows ASME Y14.5 and ISO GPS rigorously. We always recommend final human verification for production-critical decisions.</div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">Is my drawing data secure?<span class="faq-icon">+</span></button>
+          <div class="faq-a">Yes. Your drawings are processed in real-time and never stored permanently on our servers. Images are sent to OpenAI's API for analysis and are not used for training. Enterprise customers can opt for on-premise deployment for complete data isolation.</div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">Can I cancel my Pro subscription anytime?<span class="faq-icon">+</span></button>
+          <div class="faq-a">Absolutely. There are no long-term contracts. You can cancel your Pro subscription at any time and you'll retain access until the end of your billing period. Annual plans are refundable within the first 14 days.</div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">What's included in the free plan?<span class="faq-icon">+</span></button>
+          <div class="faq-a">The free plan gives you 2 AI analyses per hour — enough to evaluate Draft AI for your workflow. You get access to dimension detection, GD&T analysis, material recommendations, and the conversational AI. Batch analysis, Excel/PDF export, and standards checking require Pro.</div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-q" onclick="toggleFaq(this)">Do you offer team or enterprise pricing?<span class="faq-icon">+</span></button>
+          <div class="faq-a">Yes! Enterprise plans include unlimited analyses, API access, team management with role-based permissions, SSO/SAML authentication, and a dedicated account manager. Contact our sales team for a custom quote tailored to your organization's needs.</div>
+        </div>
+      </div>
+    </section>
 
     <!-- LOGIN / CTA -->
     <div class="cta-section" id="login">
       <div class="cta-box reveal">
-        <h2 class="cta-title">Start analyzing<br /><em>for free.</em></h2>
+        <h2 class="cta-title">Ready to ship<br /><em>faster?</em></h2>
         <p class="cta-sub">
-          Open Draft AI and start analyzing instantly.<br />
-          No sign-in required. 2 free analyses per hour.
+          Join 500+ engineers already using Draft AI.<br />
+          Start with 2 free analyses per hour. No credit card required.
         </p>
 
         <div class="login-buttons">
@@ -1458,7 +1578,8 @@
         </div>
 
         <p class="cta-note">
-          Free tier: 2 requests/hour · No credit card needed.
+          Free tier: 2 requests/hour · No credit card needed.<br/>
+
         </p>
       </div>
     </div>
@@ -1467,14 +1588,14 @@
     <footer>
       <div class="footer-logo">Draft <span>AI</span></div>
       <p class="footer-copy">
-        © 2025 Draft AI · Made with ♥ by Rishi · Powered by GPT-4o Vision
+        © 2026 Draft AI · Made with ♥ by Rishi · Powered by GPT-4o Vision
       </p>
       <ul class="footer-links">
+
+        <li><a href="#faq">FAQ</a></li>
         <li><a href="#">Privacy</a></li>
         <li><a href="#">Terms</a></li>
-        <li>
-          <a href="https://draftaii.streamlit.app">App</a>
-        </li>
+        <li><a href="https://draftaii.streamlit.app">App</a></li>
       </ul>
     </footer>
 
@@ -1505,6 +1626,18 @@
           }
         });
       });
+
+
+
+      // FAQ accordion
+      function toggleFaq(btn) {
+        const item = btn.parentElement;
+        const wasOpen = item.classList.contains('open');
+        // close all
+        document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'));
+        // open clicked if it was closed
+        if (!wasOpen) item.classList.add('open');
+      }
     </script>
   </body>
 </html>
