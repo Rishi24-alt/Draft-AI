@@ -256,7 +256,6 @@ def render_navigation_panel(key_prefix="nav", include_saved_chats=True):
         ("Drawing Library", "library"),
         ("BOM Generator", "bom"),
         ("Standards Checker", "standards"),
-        ("3D → 2D", "cad3d"),
     ]
     for label, tab in nav_items:
         if st.button(label, key=f"{key_prefix}_{tab}", use_container_width=True):
