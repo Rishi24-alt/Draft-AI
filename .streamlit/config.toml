@@ -2,7 +2,13 @@
 gatherUsageStats = false
 
 [client]
-showSidebarNavigation = false
+showErrorDetails = true
 
-[ui]
-hideTopBar = true
+[logger]
+level = "debug"
+
+[server]
+headless = true
+enableXsrfProtection = true
+maxUploadSize = 10
+port = 8501
