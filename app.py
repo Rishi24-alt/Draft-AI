@@ -1948,7 +1948,7 @@ elif st.session_state.active_tab == "standards":
 
         # ── 3D file path ─────────────────────────────────────────────────────
         if is_3d:
-            from cad_converter import is_addin_running, prepare_and_export
+            from cad_converter import is_addin_running, is_addin_online_cloud, prepare_and_export
 
             addin_ok = is_addin_running()
             st.session_state.addin_ok_cache = addin_ok
@@ -2280,7 +2280,7 @@ elif st.session_state.active_tab == "standards":
 
 elif st.session_state.active_tab == "cad3d":
 
-    from cad_converter import is_addin_running, prepare_and_export
+    from cad_converter import is_addin_running, is_addin_online_cloud, prepare_and_export
 
     st.markdown(
         """
@@ -2310,20 +2310,28 @@ elif st.session_state.active_tab == "cad3d":
         unsafe_allow_html=True,
     )
 
-    # Check add-in status — cache in session state to avoid re-render flash
+    # Check add-in status — local first, then cloud relay
     if "addin_ok_cache" not in st.session_state:
         st.session_state.addin_ok_cache = False
-    addin_ok = is_addin_running()
+
+    addin_local = is_addin_running()
+    addin_cloud = is_addin_online_cloud() if not addin_local else False
+    addin_ok    = addin_local or addin_cloud
     st.session_state.addin_ok_cache = addin_ok
 
-    if addin_ok:
+    if addin_local:
         st.markdown(
-            '<div class="addin-status addin-on">⚡ SolidWorks Add-in connected · Ready</div>',
+            '<div class="addin-status addin-on">⚡ SolidWorks Add-in connected locally · Ready</div>',
+            unsafe_allow_html=True,
+        )
+    elif addin_cloud:
+        st.markdown(
+            '<div class="addin-status addin-on">☁️ SolidWorks Add-in connected via cloud · Ready</div>',
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            '<div class="addin-status addin-off">⚠️ SolidWorks Add-in not detected · Install it below</div>',
+            '<div class="addin-status addin-off">⚠️ SolidWorks Add-in not detected · Download and install it below, then open SolidWorks</div>',
             unsafe_allow_html=True,
         )
 
@@ -2335,7 +2343,7 @@ elif st.session_state.active_tab == "cad3d":
     One-time setup — takes ~2 minutes
   </div>
   <div class="install-step">
-    <strong>1.</strong> Click the button below to download <code>DraftAI_Addin_V1.0.zip</code><br>
+    <strong>1.</strong> Click the button below to download <code>DraftAI.Plugin.V1.zip</code><br>
     <strong>2.</strong> Extract the ZIP to any permanent folder on your PC<br>
     <strong>3.</strong> Right-click <code>install.bat</code> → <strong>Run as Administrator</strong><br>
     <strong>4.</strong> Open SolidWorks → <strong>Tools → Add-Ins</strong> → check <strong>Draft AI</strong> → OK<br>
@@ -2343,7 +2351,7 @@ elif st.session_state.active_tab == "cad3d":
   </div>
 </div>
 <div style="margin-top:14px;display:flex;align-items:center;gap:10px;">
-  <a href="https://github.com/Rishi24-alt/DraftAI-Addin/releases/download/v1/DraftAI_Addin_V1.0.zip"
+  <a href="https://github.com/Rishi24-alt/DraftAI-Addin/releases/download/V2/DraftAI.Plugin.V1.zip"
      style="display:inline-flex;align-items:center;gap:7px;
             background:rgba(249,115,22,0.1);
             border:1px solid rgba(249,115,22,0.35);
@@ -2363,7 +2371,7 @@ elif st.session_state.active_tab == "cad3d":
     </svg>
     Download Add-in v1.0
   </a>
-  <span style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,0.2);">DraftAI_Addin_V1.0.zip · Windows · .NET 4.8</span>
+  <span style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,0.2);">DraftAI.Plugin.V1.zip · Windows · .NET 4.8</span>
 </div>
 """,
                 unsafe_allow_html=True,
@@ -2386,22 +2394,22 @@ elif st.session_state.active_tab == "cad3d":
         unsafe_allow_html=True,
     )
 
-    if cad_file and addin_ok:
-        if st.button(
-            "⚡  Generate 2D Views via SolidWorks",
-            use_container_width=True,
-            key="cad_gen_btn",
-        ):
-            with st.spinner("SolidWorks is processing your file..."):
-                try:
-                    result = prepare_and_export(cad_file.read(), cad_file.name)
-                    st.session_state["cad_result"] = result
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
-
-    elif cad_file and not addin_ok:
-        st.warning("Install the SolidWorks add-in first, then upload your file.")
+    if cad_file:
+        if addin_ok:
+            if st.button(
+                "⚡  Generate 2D Views via SolidWorks",
+                use_container_width=True,
+                key="cad_gen_btn",
+            ):
+                with st.spinner("SolidWorks is processing your file... this may take up to 60 seconds"):
+                    try:
+                        result = prepare_and_export(cad_file.read(), cad_file.name)
+                        st.session_state["cad_result"] = result
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        else:
+            st.warning("⚠️ Open SolidWorks with the Draft AI add-in loaded, then click Analyze.")
 
     # ── Results ──
     if "cad_result" in st.session_state and st.session_state["cad_result"]:
