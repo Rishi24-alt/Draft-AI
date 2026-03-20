@@ -34,24 +34,77 @@ from utils import (
     # -- Standards Checker --
     check_drawing_standards,
 )
-import json, os, re, time, base64, shutil
+import json
+import os
+import io
+import re
+import time
+import base64
 from datetime import datetime
 from pathlib import Path
+
+# ------------------------------------------------------------------
+# PASSWORD PROTECTION - SELECTIVE (ONLY FOR 3D → 2D FEATURE)
+# ------------------------------------------------------------------
+
+
+def check_premium_access():
+    """Check password ONLY for 3D → 2D feature. Returns `True` if authorized."""
+
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        correct_password = os.getenv("PREMIUM_PASSWORD", "exclusive2025")
+        if st.session_state["premium_password"] == correct_password:
+            st.session_state["premium_authorized"] = True
+            del st.session_state["premium_password"]  # Don't store password
+        else:
+            st.session_state["premium_authorized"] = False
+
+    # If already authenticated for premium, return True
+    if st.session_state.get("premium_authorized", False):
+        return True
+
+    # Show password input
+    st.markdown(
+        """
+    <div style='text-align: center; padding: 40px 20px;'>
+        <h2>🔐 Premium Feature - Beta Access</h2>
+        <p style='font-size: 14px; color: #888;'>The 3D → 2D Converter is an exclusive beta feature.</p>
+    </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.text_input(
+        "Enter access password:",
+        type="password",
+        on_change=password_entered,
+        key="premium_password",
+        placeholder="••••••••",
+    )
+
+    if (
+        "premium_authorized" in st.session_state
+        and not st.session_state["premium_authorized"]
+    ):
+        st.error("❌ Incorrect password.")
+
+    return False
 
 
 # ------------------------------------------------------------------
 # CONSTANTS
 # ------------------------------------------------------------------
 
-CHATS_FILE          = "saved_chats.json"     # Persisted chat sessions
-LIBRARY_FILE        = "drawing_library.json" # Drawing library metadata
-LIBRARY_DIR         = "drawing_library"      # Folder for saved drawings
+CHATS_FILE = "saved_chats.json"  # Persisted chat sessions
+LIBRARY_FILE = "drawing_library.json"  # Drawing library metadata
+LIBRARY_DIR = "drawing_library"  # Folder for saved drawings
 
-MAX_CHATS           = 20   # Max saved chats before oldest is dropped
-MAX_BATCH_FILES     = 5    # Max drawings per batch analysis
-MAX_FILE_SIZE_MB    = 10   # Max upload size in megabytes
-MAX_REQUESTS_PER_IP = 2    # Max AI requests per hour per IP
-RATE_LIMIT_FILE     = "rate_limits.json"
+MAX_CHATS = 20  # Max saved chats before oldest is dropped
+MAX_BATCH_FILES = 5  # Max drawings per batch analysis
+MAX_FILE_SIZE_MB = 10  # Max upload size in megabytes
+MAX_REQUESTS_PER_IP = 2  # Max AI requests per hour per IP
+RATE_LIMIT_FILE = "rate_limits.json"
 
 # Ensure drawing library folder exists on startup
 Path(LIBRARY_DIR).mkdir(exist_ok=True)
@@ -61,6 +114,7 @@ Path(LIBRARY_DIR).mkdir(exist_ok=True)
 # SECURITY � File validation & rate limiting
 # ------------------------------------------------------------------
 
+
 def validate_file(f):
     """
     Validate uploaded file using magic bytes (not just file extension).
@@ -69,10 +123,14 @@ def validate_file(f):
     """
     h = f.read(12)
     f.seek(0)
-    if h[:8] == b'\x89PNG\r\n\x1a\n':              return True, "png"
-    if h[:3] == b'\xff\xd8\xff':                    return True, "jpeg"
-    if h[:4] == b'RIFF' and h[8:12] == b'WEBP':    return True, "webp"
-    if h[:4] == b'%PDF':                            return True, "pdf"
+    if h[:8] == b"\x89PNG\r\n\x1a\n":
+        return True, "png"
+    if h[:3] == b"\xff\xd8\xff":
+        return True, "jpeg"
+    if h[:4] == b"RIFF" and h[8:12] == b"WEBP":
+        return True, "webp"
+    if h[:4] == b"%PDF":
+        return True, "pdf"
     return False, None
 
 
@@ -90,7 +148,7 @@ def load_rate_limits():
         try:
             with open(RATE_LIMIT_FILE) as f:
                 return json.load(f)
-        except:
+        except Exception:
             pass
     return {}
 
@@ -104,10 +162,10 @@ def save_rate_limits(d):
 def get_client_ip():
     """Get the client IP from request headers. Falls back to 'local'."""
     try:
-        h  = st.context.headers
+        h = st.context.headers
         ip = h.get("x-forwarded-for", h.get("x-real-ip", "local"))
         return ip.split(",")[0].strip()
-    except:
+    except Exception:
         return "local"
 
 
@@ -122,7 +180,7 @@ def check_rate_limit(ip):
         lim[ip] = {"count": 0, "window_start": now}
     e = lim[ip]
     if now - e["window_start"] > 3600:
-        e["count"]        = 0
+        e["count"] = 0
         e["window_start"] = now
     if e["count"] >= MAX_REQUESTS_PER_IP:
         save_rate_limits(lim)
@@ -141,11 +199,10 @@ def increment_rate_limit(ip):
     save_rate_limits(lim)
 
 
-
-
 # ------------------------------------------------------------------
 # DRAWING LIBRARY � Save, load, search, delete drawings
 # ------------------------------------------------------------------
+
 
 def load_library():
     """Load drawing library metadata from disk."""
@@ -153,7 +210,7 @@ def load_library():
         try:
             with open(LIBRARY_FILE) as f:
                 return json.load(f)
-        except:
+        except Exception:
             pass
     return {}
 
@@ -170,10 +227,10 @@ def add_to_library(uploaded_file, tags="", notes=""):
     Uses a timestamp prefix to avoid filename collisions.
     Returns the unique ID (uid) of the saved entry.
     """
-    lib  = load_library()
+    lib = load_library()
     name = uploaded_file.name
-    ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
-    uid  = f"{ts}_{name}"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    uid = f"{ts}_{name}"
     dest = os.path.join(LIBRARY_DIR, uid)
 
     uploaded_file.seek(0)
@@ -182,12 +239,12 @@ def add_to_library(uploaded_file, tags="", notes=""):
     uploaded_file.seek(0)
 
     lib[uid] = {
-        "name":    name,
-        "uid":     uid,
-        "path":    dest,
-        "tags":    [t.strip() for t in tags.split(",") if t.strip()],
-        "notes":   notes,
-        "added":   datetime.now().strftime("%d %b %Y, %H:%M"),
+        "name": name,
+        "uid": uid,
+        "path": dest,
+        "tags": [t.strip() for t in tags.split(",") if t.strip()],
+        "notes": notes,
+        "added": datetime.now().strftime("%d %b %Y, %H:%M"),
         "size_mb": round(check_file_size(uploaded_file), 2),
     }
     save_library(lib)
@@ -200,7 +257,7 @@ def delete_from_library(uid):
     if uid in lib:
         try:
             os.remove(lib[uid]["path"])
-        except:
+        except Exception:
             pass
         del lib[uid]
         save_library(lib)
@@ -210,13 +267,14 @@ def delete_from_library(uid):
 # CHAT PERSISTENCE � Save and restore chat sessions
 # ------------------------------------------------------------------
 
+
 def load_chats():
     """Load saved chat sessions from disk."""
     if os.path.exists(CHATS_FILE):
         try:
             with open(CHATS_FILE) as f:
                 return json.load(f)
-        except:
+        except Exception:
             pass
     return {}
 
@@ -237,8 +295,8 @@ def persist_chat():
         return
     st.session_state.saved_chats[name] = {
         "messages_display": list(st.session_state.messages_display),
-        "chat_history":     list(st.session_state.chat_history),
-        "image":            st.session_state.get("current_drawing_image"),
+        "chat_history": list(st.session_state.chat_history),
+        "image": st.session_state.get("current_drawing_image"),
     }
     if len(st.session_state.saved_chats) > MAX_CHATS:
         del st.session_state.saved_chats[next(iter(st.session_state.saved_chats))]
@@ -247,7 +305,9 @@ def persist_chat():
 
 def render_navigation_panel(key_prefix="nav", include_saved_chats=True):
     """Render navigation and chat controls in either the sidebar or a popover."""
-    st.markdown('<div class="sb-logo">Draft <span>AI</span></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sb-logo">Draft <span>AI</span></div>', unsafe_allow_html=True
+    )
 
     st.markdown('<div class="sb-label">Navigation</div>', unsafe_allow_html=True)
     nav_items = [
@@ -256,6 +316,7 @@ def render_navigation_panel(key_prefix="nav", include_saved_chats=True):
         ("Drawing Library", "library"),
         ("BOM Generator", "bom"),
         ("Standards Checker", "standards"),
+        ("3D → 2D", "cad3d"),
     ]
     for label, tab in nav_items:
         if st.button(label, key=f"{key_prefix}_{tab}", use_container_width=True):
@@ -264,10 +325,16 @@ def render_navigation_panel(key_prefix="nav", include_saved_chats=True):
 
     st.markdown('<div class="sb-label">Chat History</div>', unsafe_allow_html=True)
     count = len(st.session_state.saved_chats)
-    st.markdown(f'<div class="sb-quota"><span>{count}</span> / {MAX_CHATS} chats saved</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="sb-quota"><span>{count}</span> / {MAX_CHATS} chats saved</div>',
+        unsafe_allow_html=True,
+    )
     _ip = get_client_ip()
     _, _rem, _ = check_rate_limit(_ip)
-    st.markdown(f'<div class="sb-quota">Requests left: <span>{_rem}</span> / {MAX_REQUESTS_PER_IP} this hour</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="sb-quota">Requests left: <span>{_rem}</span> / {MAX_REQUESTS_PER_IP} this hour</div>',
+        unsafe_allow_html=True,
+    )
 
     if st.button("+ New Chat", key=f"{key_prefix}_new_chat", use_container_width=True):
         st.session_state.chat_history = []
@@ -285,7 +352,7 @@ def render_navigation_panel(key_prefix="nav", include_saved_chats=True):
     if not st.session_state.saved_chats:
         st.markdown(
             '<div style="font-size:11px;color:rgba(255,255,255,0.12);'
-            'font-family:\'JetBrains Mono\',monospace;padding:4px 0;">No chats yet.</div>',
+            "font-family:'JetBrains Mono',monospace;padding:4px 0;\">No chats yet.</div>",
             unsafe_allow_html=True,
         )
         return
@@ -293,7 +360,11 @@ def render_navigation_panel(key_prefix="nav", include_saved_chats=True):
     for name in reversed(list(st.session_state.saved_chats.keys())):
         cb, cd = st.columns([5, 1])
         with cb:
-            if st.button(f"{name[:22]}", key=f"{key_prefix}_load_{name}", use_container_width=True):
+            if st.button(
+                f"{name[:22]}",
+                key=f"{key_prefix}_load_{name}",
+                use_container_width=True,
+            ):
                 s = st.session_state.saved_chats[name]
                 st.session_state.messages_display = s["messages_display"]
                 st.session_state.chat_history = s["chat_history"]
@@ -312,15 +383,16 @@ def render_navigation_panel(key_prefix="nav", include_saved_chats=True):
 # MESSAGE FORMATTER � Convert AI text to styled HTML bubbles
 # ------------------------------------------------------------------
 
+
 def fmt(text):
     """
     Convert plain AI response text to HTML for chat display.
     Handles: headings, ordered lists, unordered lists, bold, plain paragraphs.
     Escapes HTML special characters to prevent injection.
     """
-    text    = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    lines   = text.split("\n")
-    html    = ""
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    lines = text.split("\n")
+    html = ""
     in_list = False
 
     for line in lines:
@@ -331,42 +403,44 @@ def fmt(text):
         # Headings (## or ###)
         if s.startswith("### ") or s.startswith("## "):
             if in_list:
-                html   += f'</{in_list}>'
+                html += f"</{in_list}>"
                 in_list = False
-            h     = re.sub(r'^#+\s*', '', s)
-            h     = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', h)
+            h = re.sub(r"^#+\s*", "", s)
+            h = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", h)
             html += f'<p style="margin:10px 0 4px;font-weight:600;color:#fff;font-size:14px;">{h}</p>'
 
         # Ordered list (1. item)
-        elif re.match(r'^\d+\.', s):
+        elif re.match(r"^\d+\.", s):
             if in_list != "ol":
-                if in_list: html += f'</{in_list}>'
-                html   += '<ol style="margin:4px 0 4px 20px;padding:0;color:#fff;">'
+                if in_list:
+                    html += f"</{in_list}>"
+                html += '<ol style="margin:4px 0 4px 20px;padding:0;color:#fff;">'
                 in_list = "ol"
-            item  = re.sub(r'^\d+\.\s*', '', s)
-            item  = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', item)
+            item = re.sub(r"^\d+\.\s*", "", s)
+            item = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", item)
             html += f'<li style="margin-bottom:4px;line-height:1.7;font-size:14px;">{item}</li>'
 
         # Unordered list (- or �)
-        elif s.startswith("- ") or s.startswith("� ") or re.match(r'^[⚙️]\s', s):
+        elif s.startswith("- ") or s.startswith("� ") or re.match(r"^[⚙️]\s", s):
             if in_list != "ul":
-                if in_list: html += f'</{in_list}>'
-                html   += '<ul style="margin:4px 0 4px 20px;padding:0;color:#fff;">'
+                if in_list:
+                    html += f"</{in_list}>"
+                html += '<ul style="margin:4px 0 4px 20px;padding:0;color:#fff;">'
                 in_list = "ul"
-            item  = re.sub(r'^[-⚙️]\s*', '', s)
-            item  = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', item)
+            item = re.sub(r"^[-⚙️]\s*", "", s)
+            item = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", item)
             html += f'<li style="margin-bottom:4px;line-height:1.7;font-size:14px;">{item}</li>'
 
         # Plain paragraph
         else:
             if in_list:
-                html   += f'</{in_list}>'
+                html += f"</{in_list}>"
                 in_list = False
-            lh    = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', s)
+            lh = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", s)
             html += f'<p style="margin:4px 0;line-height:1.7;font-size:14px;color:#fff;">{lh}</p>'
 
     if in_list:
-        html += f'</{in_list}>'
+        html += f"</{in_list}>"
     return html
 
 
@@ -378,38 +452,39 @@ def render_dim_table(json_str):
     try:
         clean = json_str.strip()
         if "```" in clean:
-            clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
-        data  = json.loads(clean)
-        dims  = data.get("dimensions", data) if isinstance(data, dict) else data
+            clean = re.sub(r"```[a-z]*", "", clean).replace("```", "").strip()
+        data = json.loads(clean)
+        dims = data.get("dimensions", data) if isinstance(data, dict) else data
         if not dims:
             return fmt(json_str)
 
         rows = ""
         for i, d in enumerate(dims):
-            bg       = "rgba(255,255,255,0.02)" if i % 2 == 0 else "rgba(255,255,255,0.04)"
-            label    = str(d.get("label",     "�"))
-            value    = str(d.get("value",     "�"))
-            unit     = str(d.get("unit",      "�"))
-            tol      = str(d.get("tolerance", "�"))
-            location = str(d.get("location",  "�"))
-            dtype    = str(d.get("type",      "�"))
-            rows += f'''<tr style="background:{bg};">
+            bg = "rgba(255,255,255,0.02)" if i % 2 == 0 else "rgba(255,255,255,0.04)"
+            label = str(d.get("label", "�"))
+            value = str(d.get("value", "�"))
+            unit = str(d.get("unit", "�"))
+            tol = str(d.get("tolerance", "�"))
+            location = str(d.get("location", "�"))
+            dtype = str(d.get("type", "�"))
+            rows += f"""<tr style="background:{bg};">
                 <td style="padding:7px 12px;color:rgba(255,255,255,0.5);font-size:12px;">{label}</td>
                 <td style="padding:7px 12px;color:#f97316;font-weight:600;font-size:14px;">{value}</td>
                 <td style="padding:7px 12px;color:rgba(255,255,255,0.6);font-size:12px;">{unit}</td>
                 <td style="padding:7px 12px;color:rgba(255,255,255,0.5);font-size:12px;">{tol}</td>
                 <td style="padding:7px 12px;color:rgba(255,255,255,0.4);font-size:11px;">{dtype}</td>
                 <td style="padding:7px 12px;color:rgba(255,255,255,0.35);font-size:11px;">{location}</td>
-            </tr>'''
+            </tr>"""
 
         summary = data.get("summary", "") if isinstance(data, dict) else ""
         sum_row = (
             f'<div style="padding:8px 12px;font-size:11px;color:rgba(255,255,255,0.35);'
             f'border-top:1px solid rgba(255,255,255,0.06);">{summary}</div>'
-            if summary else ""
+            if summary
+            else ""
         )
 
-        return f'''<div style="background:rgba(249,115,22,0.04);border:1px solid rgba(249,115,22,0.15);border-radius:10px;overflow:hidden;">
+        return f"""<div style="background:rgba(249,115,22,0.04);border:1px solid rgba(249,115,22,0.15);border-radius:10px;overflow:hidden;">
             <div style="padding:8px 14px;font-size:10px;font-family:DM Mono,monospace;color:#f97316;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid rgba(249,115,22,0.12);">
                 📐 DIMENSIONS DETECTED � {len(dims)} found
             </div>
@@ -424,8 +499,8 @@ def render_dim_table(json_str):
                 </tr></thead>
                 <tbody>{rows}</tbody>
             </table>{sum_row}
-        </div>'''
-    except:
+        </div>"""
+    except Exception:
         return fmt(json_str)
 
 
@@ -438,25 +513,25 @@ def render_title_block(raw):
     for line in raw.strip().split("\n"):
         if ":" in line:
             parts = line.split(":", 1)
-            k     = parts[0].strip()
-            v     = parts[1].strip() if len(parts) > 1 else "�"
+            k = parts[0].strip()
+            v = parts[1].strip() if len(parts) > 1 else "�"
             if v and v.lower() != "not specified":
                 rows += (
-                    f'<tr>'
+                    f"<tr>"
                     f'<td style="padding:7px 14px;color:rgba(255,255,255,0.45);font-size:12px;'
-                    f'font-family:DM Mono,monospace;white-space:nowrap;'
+                    f"font-family:DM Mono,monospace;white-space:nowrap;"
                     f'border-bottom:1px solid rgba(255,255,255,0.04);">{k}</td>'
                     f'<td style="padding:7px 14px;color:#fff;font-size:13px;'
                     f'border-bottom:1px solid rgba(255,255,255,0.04);">{v}</td>'
-                    f'</tr>'
+                    f"</tr>"
                 )
-    return f'''<div style="background:rgba(249,115,22,0.05);border:1px solid rgba(249,115,22,0.18);border-radius:10px;overflow:hidden;">
+    return f"""<div style="background:rgba(249,115,22,0.05);border:1px solid rgba(249,115,22,0.18);border-radius:10px;overflow:hidden;">
         <div style="padding:8px 14px;font-size:10px;font-family:DM Mono,monospace;color:#f97316;
                     letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid rgba(249,115,22,0.12);">
             🏷 TITLE BLOCK
         </div>
         <table style="width:100%;border-collapse:collapse;">{rows}</table>
-    </div>'''
+    </div>"""
 
 
 # ------------------------------------------------------------------
@@ -496,6 +571,7 @@ def render_drawing_preview(image_bytes, key_suffix):
         if st.button("Enlarge", key=f"enlarge_{key_suffix}", use_container_width=True):
             open_drawing_preview(image_bytes)
 
+
 # PAGE CONFIG
 # ------------------------------------------------------------------
 
@@ -511,7 +587,8 @@ st.set_page_config(
 # GLOBAL CSS STYLES
 # ------------------------------------------------------------------
 
-st.markdown("""
+st.markdown(
+    """
 <style>
 
 /* ── FONTS ── */
@@ -574,7 +651,11 @@ html, body {
     overflow: visible !important;
 }
 .stDeployButton, #MainMenu, footer { display: none !important; }
-[data-testid="stToolbar"] { display: none !important; }
+[data-testid="stToolbar"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
 [data-testid="stDecoration"] { display: none !important; }
 #stDecoration { display: none !important; }
 [class*="viewerBadge"] { display: none !important; }
@@ -613,96 +694,30 @@ html, body {
 .top-bar-file .dot { color: #22c55e; margin-right: 5px; }
 
 /* ── SIDEBAR TOGGLE ── */
-[data-testid="collapsedControl"] {
-    display: none !important;
-}
-[data-testid="stSidebarCollapseButton"] { display: none !important; }
-
-
-/* ── SIDEBAR COLLAPSE ARROW ── */
-/* Hide the default text/icon and replace with clean arrow */
-[data-testid="stSidebarCollapsedControl"],
-[data-testid="collapsedControl"] {
-    background: #0d0d0d !important;
-    border: 1px solid rgba(249,115,22,0.25) !important;
-    border-radius: 0 8px 8px 0 !important;
-    width: 24px !important;
-    height: 48px !important;
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"] {
     display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    position: fixed !important;
-    top: 50% !important;
-    left: 0 !important;
-    transform: translateY(-50%) !important;
-    z-index: 99999 !important;
-    cursor: pointer !important;
-    transition: all 0.2s !important;
     visibility: visible !important;
     opacity: 1 !important;
+    z-index: 100002 !important;
 }
-[data-testid="stSidebarCollapsedControl"]:hover,
-[data-testid="collapsedControl"]:hover {
-    background: rgba(249,115,22,0.12) !important;
-    border-color: rgba(249,115,22,0.5) !important;
-    width: 28px !important;
-}
-[data-testid="stSidebarCollapsedControl"] svg,
-[data-testid="collapsedControl"] svg {
-    color: #f97316 !important;
-    fill: #f97316 !important;
-    width: 14px !important;
-    height: 14px !important;
-}
-
-/* The expand/collapse button inside the sidebar */
-[data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"],
-[data-testid="stSidebar"] button[aria-label="close sidebar"],
-[data-testid="stSidebar"] button[aria-label="Close sidebar"],
-[data-testid="stSidebar"] button[kind="header"] {
-    background: transparent !important;
-    border: 1px solid rgba(249,115,22,0.2) !important;
-    border-radius: 0 8px 8px 0 !important;
-    color: #f97316 !important;
-    width: 24px !important;
-    height: 48px !important;
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"] {
     position: fixed !important;
-    left: 238px !important;
-    top: 50% !important;
+    top: 90px !important;
+    left: 12px !important;
     transform: translateY(-50%) !important;
-    z-index: 99999 !important;
-    padding: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-}
-[data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"]:hover,
-[data-testid="stSidebar"] button[aria-label="close sidebar"]:hover {
-    background: rgba(249,115,22,0.1) !important;
-    border-color: #f97316 !important;
-}
-[data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"] svg,
-[data-testid="stSidebar"] button[aria-label="close sidebar"] svg {
-    color: #f97316 !important;
-    fill: #f97316 !important;
+    background: rgba(13,13,13,0.92) !important;
+    border: 1px solid rgba(249,115,22,0.35) !important;
+    border-radius: 8px !important;
+    padding: 2px !important;
 }
 
 /* ── SIDEBAR ── */
 [data-testid="stSidebar"] {
     background: #0d0d0d !important;
     border-right: 1px solid rgba(255,255,255,0.05) !important;
-    min-width: 300px !important;
-    max-width: 300px !important;
-    transform: translateX(0) !important;
-    margin-left: 0 !important;
-    visibility: visible !important;
-}
-[data-testid="stSidebar"][aria-expanded="false"] {
-    min-width: 300px !important;
-    max-width: 300px !important;
-    transform: translateX(0) !important;
-    margin-left: 0 !important;
-    visibility: visible !important;
 }
 [data-testid="stSidebar"] > div:first-child { padding: 24px 14px !important; }
 
@@ -1039,7 +1054,9 @@ div[data-testid="stHorizontalBlock"] div[data-testid="column"] > div > div > div
 }
 
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 # ------------------------------------------------------------------
@@ -1048,7 +1065,8 @@ div[data-testid="stHorizontalBlock"] div[data-testid="column"] > div > div > div
 
 if "splash_shown" not in st.session_state:
     st.session_state.splash_shown = True
-    st.markdown("""
+    st.markdown(
+        """
 <div id="draft-ai-splash">
     <div class="splash-content">
         <div class="splash-title">Draft <span>AI</span></div>
@@ -1056,19 +1074,21 @@ if "splash_shown" not in st.session_state:
         <div class="splash-bar-wrap"><div class="splash-bar"></div></div>
     </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
 
 for k, v in [
-    ("chat_history",         []),
-    ("messages_display",     []),
+    ("chat_history", []),
+    ("messages_display", []),
     ("current_drawing_name", None),
-    ("title_block_data",     None),
-    ("active_tab",           "analyze"),
-        ("show_revision_panel",  False),
-    ("uploader_key",         0),
-    ("batch_results",        []),
-    ("batch_running",        False),
-    ("standards_result",     None),
+    ("title_block_data", None),
+    ("active_tab", "analyze"),
+    ("show_revision_panel", False),
+    ("uploader_key", 0),
+    ("batch_results", []),
+    ("batch_running", False),
+    ("standards_result", None),
 ]:
     if k not in st.session_state:
         st.session_state[k] = v
@@ -1092,10 +1112,12 @@ with st.sidebar:
 # ── TOP BAR ──
 _fname = st.session_state.get("current_drawing_name")
 _file_pill = (
-    f'''<div class="top-bar-file"><span class="dot">●</span>{_fname}</div>'''
-    if _fname else ""
+    f"""<div class="top-bar-file"><span class="dot">●</span>{_fname}</div>"""
+    if _fname
+    else ""
 )
-st.markdown(f"""
+st.markdown(
+    f"""
 <div class="top-bar">
   <div class="top-bar-left">
     <div class="top-bar-logo">Draft<span> AI</span></div>
@@ -1106,7 +1128,9 @@ st.markdown(f"""
     <span class="gear-spin" style="display:inline-block;margin-right:6px;">⚙</span>GPT-4o Vision
   </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 # ------------------------------------------------------------------
@@ -1115,15 +1139,21 @@ st.markdown(f"""
 
 if st.session_state.active_tab == "batch":
 
-    st.markdown('<div class="section-label" style="margin-top:12px;">Batch Analysis</div>', unsafe_allow_html=True)
-    st.markdown("""
+    st.markdown(
+        '<div class="section-label" style="margin-top:12px;">Batch Analysis</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
 <div style="background:rgba(249,115,22,0.05);border:1px solid rgba(249,115,22,0.15);border-radius:8px;padding:12px 16px;margin-bottom:14px;">
     <div style="font-size:13px;color:rgba(255,255,255,0.85);font-family:Syne,sans-serif;">
         Upload up to <b style="color:#f97316;">5 drawings</b> at once. Draft AI will analyze each one and generate a
         comparison report — exportable as <b style="color:#f97316;">Excel</b> or <b style="color:#f97316;">PDF</b>.
     </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
 
     batch_files = st.file_uploader(
         "Upload drawings for batch analysis",
@@ -1134,20 +1164,28 @@ if st.session_state.active_tab == "batch":
     )
 
     # Analysis options
-    st.markdown('<div class="section-label" style="margin-top:10px;">Analysis Options</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-label" style="margin-top:10px;">Analysis Options</div>',
+        unsafe_allow_html=True,
+    )
     opt1, opt2, opt3 = st.columns(3)
     with opt1:
-        opt_status    = st.checkbox("Production Status",      value=True)
+        opt_status = st.checkbox("Production Status", value=True)
     with opt2:
-        opt_score     = st.checkbox("Manufacturability Score", value=True)
+        opt_score = st.checkbox("Manufacturability Score", value=True)
     with opt3:
-        opt_cost      = st.checkbox("Cost Estimate",           value=True)
+        opt_cost = st.checkbox("Cost Estimate", value=True)
 
     # File list preview
     if batch_files:
-        st.markdown(f'<div class="section-label" style="margin-top:10px;">{len(batch_files)} drawings selected</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="section-label" style="margin-top:10px;">{len(batch_files)} drawings selected</div>',
+            unsafe_allow_html=True,
+        )
         if len(batch_files) > MAX_BATCH_FILES:
-            st.warning(f"Maximum {MAX_BATCH_FILES} drawings per batch. Only the first {MAX_BATCH_FILES} will be analyzed.")
+            st.warning(
+                f"Maximum {MAX_BATCH_FILES} drawings per batch. Only the first {MAX_BATCH_FILES} will be analyzed."
+            )
             batch_files = batch_files[:MAX_BATCH_FILES]
 
         # Show thumbnails grid
@@ -1162,7 +1200,9 @@ if st.session_state.active_tab == "batch":
 
         run_col, clear_col = st.columns([3, 1])
         with run_col:
-            run_batch = st.button("Run Batch Analysis", type="primary", use_container_width=True)
+            run_batch = st.button(
+                "Run Batch Analysis", type="primary", use_container_width=True
+            )
         with clear_col:
             if st.button("Clear", use_container_width=True):
                 st.session_state.batch_results = []
@@ -1170,17 +1210,19 @@ if st.session_state.active_tab == "batch":
 
         if run_batch:
             st.session_state.batch_results = []
-            progress_bar  = st.progress(0, text="Starting batch analysis...")
-            status_text   = st.empty()
+            progress_bar = st.progress(0, text="Starting batch analysis...")
+            status_text = st.empty()
             results_so_far = []
 
             for idx, f in enumerate(batch_files):
-                pct  = int((idx / len(batch_files)) * 100)
-                progress_bar.progress(pct, text=f"Analyzing {idx+1}/{len(batch_files)}: {f.name[:30]}...")
+                pct = int((idx / len(batch_files)) * 100)
+                progress_bar.progress(
+                    pct, text=f"Analyzing {idx+1}/{len(batch_files)}: {f.name[:30]}..."
+                )
                 status_text.markdown(
-                    f'<div style="font-size:11px;color:rgba(255,255,255,0.4);font-family:\'Syne\',Helvetica,Arial,sans-serif;">'
-                    f'Processing: {f.name}</div>',
-                    unsafe_allow_html=True
+                    f"<div style=\"font-size:11px;color:rgba(255,255,255,0.4);font-family:'Syne',Helvetica,Arial,sans-serif;\">"
+                    f"Processing: {f.name}</div>",
+                    unsafe_allow_html=True,
                 )
                 f.seek(0)
                 result = batch_analyze_drawing(f, filename=f.name)
@@ -1194,52 +1236,70 @@ if st.session_state.active_tab == "batch":
     # ── Results display ──
     if st.session_state.batch_results:
         results = st.session_state.batch_results
-        total   = len(results)
-        ready   = sum(1 for r in results if "Ready" in r.get("status",""))
-        needs   = sum(1 for r in results if "Revision" in r.get("status",""))
-        rework  = sum(1 for r in results if "Major" in r.get("status","") or "Failed" in r.get("status",""))
-        scores  = [r.get("manufacturability_score",0) for r in results if isinstance(r.get("manufacturability_score"),(int,float))]
-        avg_sc  = round(sum(scores)/len(scores)) if scores else "—"
+        total = len(results)
+        ready = sum(1 for r in results if "Ready" in r.get("status", ""))
+        needs = sum(1 for r in results if "Revision" in r.get("status", ""))
+        rework = sum(
+            1
+            for r in results
+            if "Major" in r.get("status", "") or "Failed" in r.get("status", "")
+        )
+        scores = [
+            r.get("manufacturability_score", 0)
+            for r in results
+            if isinstance(r.get("manufacturability_score"), (int, float))
+        ]
+        avg_sc = round(sum(scores) / len(scores)) if scores else "—"
 
         # Stats row
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
         m1, m2, m3, m4, m5 = st.columns(5)
         for col, label, val, color in [
-            (m1, "Total",           total,   "#ffffff"),
-            (m2, "Production Ready", ready,  "#16a34a"),
-            (m3, "Needs Revision",  needs,   "#d97706"),
-            (m4, "Major Rework",    rework,  "#dc2626"),
-            (m5, "Avg Mfg. Score",  f"{avg_sc}/100", "#f97316"),
+            (m1, "Total", total, "#ffffff"),
+            (m2, "Production Ready", ready, "#16a34a"),
+            (m3, "Needs Revision", needs, "#d97706"),
+            (m4, "Major Rework", rework, "#dc2626"),
+            (m5, "Avg Mfg. Score", f"{avg_sc}/100", "#f97316"),
         ]:
             with col:
-                st.markdown(f"""
+                st.markdown(
+                    f"""
 <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);
 border-radius:8px;padding:12px 14px;text-align:center;">
     <div style="font-size:22px;font-weight:700;color:{color};font-family:Syne,sans-serif;">{val}</div>
     <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:Syne,sans-serif;text-transform:uppercase;letter-spacing:0.08em;">{label}</div>
-</div>""", unsafe_allow_html=True)
+</div>""",
+                    unsafe_allow_html=True,
+                )
 
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
         # Drawing cards
         st.markdown('<div class="section-label">Results</div>', unsafe_allow_html=True)
         for i, r in enumerate(results, 1):
-            status = r.get("status","—")
-            score  = r.get("manufacturability_score","—")
+            status = r.get("status", "—")
+            score = r.get("manufacturability_score", "—")
             if "Ready" in status:
-                status_color = "#16a34a"; status_bg = "rgba(22,163,74,0.08)"; border_c = "rgba(22,163,74,0.2)"
+                status_color = "#16a34a"
+                status_bg = "rgba(22,163,74,0.08)"
+                border_c = "rgba(22,163,74,0.2)"
             elif "Revision" in status:
-                status_color = "#d97706"; status_bg = "rgba(217,119,6,0.08)";  border_c = "rgba(217,119,6,0.2)"
+                status_color = "#d97706"
+                status_bg = "rgba(217,119,6,0.08)"
+                border_c = "rgba(217,119,6,0.2)"
             else:
-                status_color = "#dc2626"; status_bg = "rgba(220,38,38,0.08)";  border_c = "rgba(220,38,38,0.2)"
+                status_color = "#dc2626"
+                status_bg = "rgba(220,38,38,0.08)"
+                border_c = "rgba(220,38,38,0.2)"
 
             issues_html = ""
-            for iss in r.get("critical_issues",[]):
+            for iss in r.get("critical_issues", []):
                 issues_html += f'<div style="font-size:11px;color:#dc2626;margin-top:3px;">Critical: {iss}</div>'
-            for w in r.get("warnings",[]):
+            for w in r.get("warnings", []):
                 issues_html += f'<div style="font-size:11px;color:#d97706;margin-top:3px;">Warning: {w}</div>'
 
-            st.markdown(f"""
+            st.markdown(
+                f"""
 <div style="background:{status_bg};border:1px solid {border_c};border-radius:8px;padding:12px 16px;margin-bottom:8px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <div style="font-size:13px;font-weight:600;color:#fff;font-family:Syne,sans-serif;">
@@ -1259,11 +1319,15 @@ border-radius:8px;padding:12px 14px;text-align:center;">
     </div>
     <div style="font-size:11px;color:rgba(255,255,255,0.4);font-family:Syne,sans-serif;">{r.get("summary","—")}</div>
     {issues_html}
-</div>""", unsafe_allow_html=True)
+</div>""",
+                unsafe_allow_html=True,
+            )
 
         # Export buttons
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        st.markdown('<div class="section-label">Export Report</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="section-label">Export Report</div>', unsafe_allow_html=True
+        )
         ex1, ex2, ex3 = st.columns(3)
 
         with ex1:
@@ -1292,18 +1356,36 @@ border-radius:8px;padding:12px 14px;text-align:center;">
                 st.rerun()
 
     # ── Quick question bar for batch tab ──
-    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sticky-wrap"><div class="sticky-inner">', unsafe_allow_html=True)
-    batch_q = st.text_area("batchq", placeholder="Ask anything about the drawing...", label_visibility="collapsed", height=52, key="batch_chat_input")
+    st.markdown(
+        '<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="sticky-wrap"><div class="sticky-inner">', unsafe_allow_html=True
+    )
+    batch_q = st.text_area(
+        "batchq",
+        placeholder="Ask anything about the drawing...",
+        label_visibility="collapsed",
+        height=52,
+        key="batch_chat_input",
+    )
     bq_col1, bq_col2 = st.columns([5, 1], gap="small")
     with bq_col1:
-        bq_btn = st.button("Analyze", type="primary", use_container_width=True, key="batch_ask_btn")
+        bq_btn = st.button(
+            "Analyze", type="primary", use_container_width=True, key="batch_ask_btn"
+        )
     with bq_col2:
-        if st.button("🗑️ Clear", use_container_width=True, key="batch_clear_btn", help="Clear chat"):
-            st.session_state.chat_history     = []
+        if st.button(
+            "🗑️ Clear",
+            use_container_width=True,
+            key="batch_clear_btn",
+            help="Clear chat",
+        ):
+            st.session_state.chat_history = []
             st.session_state.messages_display = []
             st.rerun()
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
     if bq_btn and batch_q:
         st.session_state.active_tab = "analyze"
         st.session_state["_pending_question"] = batch_q
@@ -1318,10 +1400,14 @@ border-radius:8px;padding:12px 14px;text-align:center;">
 
 elif st.session_state.active_tab == "bom":
 
-    st.markdown('<div class="section-label" style="margin-top:12px;">BOM Generator</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-label" style="margin-top:12px;">BOM Generator</div>',
+        unsafe_allow_html=True,
+    )
 
     # Hero banner
-    st.markdown("""
+    st.markdown(
+        """
 <div style="background:linear-gradient(135deg,rgba(249,115,22,0.12) 0%,rgba(249,115,22,0.04) 100%);
             border:1px solid rgba(249,115,22,0.25);border-radius:12px;padding:18px 22px;margin-bottom:18px;">
     <div style="font-size:15px;font-weight:700;color:#fff;font-family:Syne,sans-serif;margin-bottom:6px;">
@@ -1332,7 +1418,9 @@ elif st.session_state.active_tab == "bom":
         and annotation to produce a structured BOM. Export to <b style="color:#f97316;">Excel</b> when done.
     </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
 
     # Upload zone
     bom_file = st.file_uploader(
@@ -1357,8 +1445,9 @@ elif st.session_state.active_tab == "bom":
                     ok, result = pdf_to_image_bytes(bom_file)
                     if ok:
                         import io
+
                         img_bytes = result
-                        bom_file  = io.BytesIO(result)
+                        bom_file = io.BytesIO(result)
                         bom_file.name = "drawing.png"
                     else:
                         st.error(f"PDF conversion failed: {result}")
@@ -1370,10 +1459,14 @@ elif st.session_state.active_tab == "bom":
             prev_col, info_col = st.columns([3, 2])
             with prev_col:
                 bom_file.seek(0)
-                st.image(bom_file.read() if img_bytes is None else img_bytes, use_container_width=True)
+                st.image(
+                    bom_file.read() if img_bytes is None else img_bytes,
+                    use_container_width=True,
+                )
                 bom_file.seek(0)
             with info_col:
-                st.markdown(f"""
+                st.markdown(
+                    f"""
 <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px 18px;margin-bottom:12px;">
     <div style="font-size:10px;color:rgba(255,255,255,0.3);font-family:DM Mono,monospace;letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">File Info</div>
     <div style="display:flex;flex-direction:column;gap:8px;">
@@ -1385,13 +1478,20 @@ elif st.session_state.active_tab == "bom":
              <span style="font-size:13px;color:#fff;">{(ftype or 'image').upper()}</span></div>
     </div>
 </div>
-""", unsafe_allow_html=True)
-                run_bom = st.button("Generate BOM", type="primary", use_container_width=True)
-                st.markdown("""
+""",
+                    unsafe_allow_html=True,
+                )
+                run_bom = st.button(
+                    "Generate BOM", type="primary", use_container_width=True
+                )
+                st.markdown(
+                    """
 <div style="font-size:11px;color:rgba(255,255,255,0.25);margin-top:8px;line-height:1.5;">
     AI will scan all part balloons, title block fields, and annotations to build the BOM.
 </div>
-""", unsafe_allow_html=True)
+""",
+                    unsafe_allow_html=True,
+                )
 
             if run_bom:
                 with st.spinner("🔍 Scanning drawing and extracting BOM..."):
@@ -1405,24 +1505,31 @@ elif st.session_state.active_tab == "bom":
 
     # ── Results ──────────────────────────────────────────────────────
     if "bom_result" in st.session_state and st.session_state["bom_result"]:
-        bom   = st.session_state["bom_result"]
+        bom = st.session_state["bom_result"]
         items = bom.get("items", [])
 
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
         # ── Stat cards row ────────────────────────────────────────────
         total_qty = sum(int(it.get("quantity", 1)) for it in items)
-        materials = len(set(it.get("material", "—") for it in items if it.get("material") and it.get("material") != "—"))
+        materials = len(
+            set(
+                it.get("material", "—")
+                for it in items
+                if it.get("material") and it.get("material") != "—"
+            )
+        )
 
         s1, s2, s3, s4 = st.columns(4)
         for col, label, value, sub in [
-            (s1, "ASSEMBLY",      bom.get("assembly_name", "—"),    None),
-            (s2, "DRAWING NO.",   bom.get("drawing_number", "—"),   None),
-            (s3, "UNIQUE PARTS",  str(len(items)),                  f"{total_qty} total qty"),
-            (s4, "REVISION",      bom.get("revision", "—"),         f"{materials} materials"),
+            (s1, "ASSEMBLY", bom.get("assembly_name", "—"), None),
+            (s2, "DRAWING NO.", bom.get("drawing_number", "—"), None),
+            (s3, "UNIQUE PARTS", str(len(items)), f"{total_qty} total qty"),
+            (s4, "REVISION", bom.get("revision", "—"), f"{materials} materials"),
         ]:
             with col:
-                st.markdown(f"""
+                st.markdown(
+                    f"""
 <div style="background:rgba(249,115,22,0.06);border:1px solid rgba(249,115,22,0.18);
             border-radius:10px;padding:14px 16px;text-align:center;">
     <div style="font-size:9px;color:rgba(255,255,255,0.35);font-family:DM Mono,monospace;
@@ -1430,7 +1537,9 @@ elif st.session_state.active_tab == "bom":
     <div style="font-size:16px;font-weight:700;color:#f97316;font-family:Syne,sans-serif;
                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{value}">{value}</div>
     {f'<div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:4px;">{sub}</div>' if sub else ''}
-</div>""", unsafe_allow_html=True)
+</div>""",
+                    unsafe_allow_html=True,
+                )
 
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
@@ -1438,7 +1547,7 @@ elif st.session_state.active_tab == "bom":
         rows_html = ""
         for i, item in enumerate(items):
             bg = "rgba(255,255,255,0.015)" if i % 2 == 0 else "rgba(255,255,255,0.035)"
-            qty_val = item.get('quantity', 1)
+            qty_val = item.get("quantity", 1)
             rows_html += f"""<tr style="background:{bg};">
                 <td style="padding:10px 14px;color:#f97316;font-weight:700;font-size:14px;text-align:center;width:48px;">{item.get('item_no', i+1)}</td>
                 <td style="padding:10px 14px;color:rgba(255,255,255,0.45);font-size:11px;font-family:'DM Mono',monospace;white-space:nowrap;">{item.get('part_number','—')}</td>
@@ -1450,7 +1559,8 @@ elif st.session_state.active_tab == "bom":
                 <td style="padding:10px 14px;color:rgba(255,255,255,0.25);font-size:11px;font-style:italic;">{item.get('notes','')}</td>
             </tr>"""
 
-        st.markdown(f"""
+        st.markdown(
+            f"""
 <div style="background:rgba(15,15,15,0.6);border:1px solid rgba(249,115,22,0.2);
             border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.3);">
     <div style="padding:10px 16px;background:rgba(249,115,22,0.08);border-bottom:1px solid rgba(249,115,22,0.15);
@@ -1482,13 +1592,15 @@ elif st.session_state.active_tab == "bom":
                 border-top:1px solid rgba(255,255,255,0.05);font-style:italic;">
         {bom.get('summary', '')}
     </div>
-</div>""", unsafe_allow_html=True)
+</div>""",
+            unsafe_allow_html=True,
+        )
 
         st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
         # ── Export + actions row ──────────────────────────────────────
         excel_buf = generate_bom_excel(bom)
-        pdf_buf   = generate_bom_pdf(bom)
+        pdf_buf = generate_bom_pdf(bom)
         dl_col, pdf_col, clear_col = st.columns([3, 3, 1])
         with dl_col:
             if excel_buf:
@@ -1510,23 +1622,40 @@ elif st.session_state.active_tab == "bom":
                     use_container_width=True,
                 )
         with clear_col:
-            if st.button("🗑 Clear", use_container_width=True, help="Remove current BOM result"):
+            if st.button(
+                "🗑 Clear", use_container_width=True, help="Remove current BOM result"
+            ):
                 del st.session_state["bom_result"]
                 st.rerun()
 
     # ── Quick question bar for BOM tab ──
-    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sticky-wrap"><div class="sticky-inner">', unsafe_allow_html=True)
-    bom_q = st.text_area("bomq", placeholder="Ask anything about the drawing...", label_visibility="collapsed", height=52, key="bom_chat_input")
+    st.markdown(
+        '<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="sticky-wrap"><div class="sticky-inner">', unsafe_allow_html=True
+    )
+    bom_q = st.text_area(
+        "bomq",
+        placeholder="Ask anything about the drawing...",
+        label_visibility="collapsed",
+        height=52,
+        key="bom_chat_input",
+    )
     bomq_col1, bomq_col2 = st.columns([5, 1], gap="small")
     with bomq_col1:
-        bomq_btn = st.button("Analyze", type="primary", use_container_width=True, key="bom_ask_btn")
+        bomq_btn = st.button(
+            "Analyze", type="primary", use_container_width=True, key="bom_ask_btn"
+        )
     with bomq_col2:
-        if st.button("🗑️ Clear", use_container_width=True, key="bom_clear_btn", help="Clear chat"):
-            st.session_state.chat_history     = []
+        if st.button(
+            "🗑️ Clear", use_container_width=True, key="bom_clear_btn", help="Clear chat"
+        ):
+            st.session_state.chat_history = []
             st.session_state.messages_display = []
             st.rerun()
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
     if bomq_btn and bom_q:
         st.session_state.active_tab = "analyze"
         st.session_state["_pending_question"] = bom_q
@@ -1542,38 +1671,58 @@ elif st.session_state.active_tab == "library":
     lib = load_library()
 
     # -- Add new drawing to library --
-    st.markdown('<div class="section-label" style="margin-top:12px;">Add to Library</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-label" style="margin-top:12px;">Add to Library</div>',
+        unsafe_allow_html=True,
+    )
     add_file = st.file_uploader(
-        "Add drawing", type=["png","jpg","jpeg","webp","pdf"],
-        label_visibility="collapsed", key="lib_upload",
+        "Add drawing",
+        type=["png", "jpg", "jpeg", "webp", "pdf"],
+        label_visibility="collapsed",
+        key="lib_upload",
     )
 
     if add_file:
-        size_mb  = check_file_size(add_file)
+        size_mb = check_file_size(add_file)
         is_valid, _ = validate_file(add_file)
 
         if size_mb > MAX_FILE_SIZE_MB:
-            st.error(f"File too large ({size_mb:.1f} MB). Max is {MAX_FILE_SIZE_MB} MB.")
+            st.error(
+                f"File too large ({size_mb:.1f} MB). Max is {MAX_FILE_SIZE_MB} MB."
+            )
         elif not is_valid:
             st.error("Invalid file type. Only real PNG/JPEG/WEBP images accepted.")
         else:
             col_tag, col_note = st.columns([1, 1])
             with col_tag:
-                tags = st.text_input("Tags (comma separated)", placeholder="shaft, tolerance, Rev-A", key="lib_tags")
+                tags = st.text_input(
+                    "Tags (comma separated)",
+                    placeholder="shaft, tolerance, Rev-A",
+                    key="lib_tags",
+                )
             with col_note:
-                notes = st.text_input("Notes (optional)", placeholder="Customer drawing, pending review", key="lib_notes")
+                notes = st.text_input(
+                    "Notes (optional)",
+                    placeholder="Customer drawing, pending review",
+                    key="lib_notes",
+                )
             if st.button("Save to Library", type="primary", use_container_width=True):
                 uid = add_to_library(add_file, tags, notes)
                 st.success(f"Saved: {add_file.name}")
                 st.rerun()
 
-    st.markdown("<div style='height:1px;background:rgba(255,255,255,0.05);margin:14px 0'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='height:1px;background:rgba(255,255,255,0.05);margin:14px 0'></div>",
+        unsafe_allow_html=True,
+    )
 
     # -- Browse and search library --
     st.markdown('<div class="section-label">Library</div>', unsafe_allow_html=True)
     search = st.text_input(
-        "Search", placeholder="Search by name or tag...",
-        label_visibility="collapsed", key="lib_search",
+        "Search",
+        placeholder="Search by name or tag...",
+        label_visibility="collapsed",
+        key="lib_search",
     )
 
     lib = load_library()  # Reload after possible new addition
@@ -1581,13 +1730,14 @@ elif st.session_state.active_tab == "library":
         st.markdown(
             '<div class="chat-empty">'
             '<div style="font-size:30px;opacity:0.15;margin-bottom:8px;">⚙️</div>'
-            '<div>No drawings saved yet</div></div>',
+            "<div>No drawings saved yet</div></div>",
             unsafe_allow_html=True,
         )
     else:
         # Filter by name or tag
         filtered = {
-            k: v for k, v in lib.items()
+            k: v
+            for k, v in lib.items()
             if not search
             or search.lower() in v["name"].lower()
             or any(search.lower() in t.lower() for t in v.get("tags", []))
@@ -1602,35 +1752,46 @@ elif st.session_state.active_tab == "library":
 
         for uid, meta in reversed(list(filtered.items())):
             with st.container():
-                tags_html = "".join(f'<span class="lib-tag">{t}</span>' for t in meta.get("tags", []))
+                tags_html = "".join(
+                    f'<span class="lib-tag">{t}</span>' for t in meta.get("tags", [])
+                )
                 notes_txt = (
                     f'<div style="font-size:11px;color:rgba(255,255,255,0.25);margin-top:4px;">{meta["notes"]}</div>'
-                    if meta.get("notes") else ""
+                    if meta.get("notes")
+                    else ""
                 )
-                st.markdown(f'''<div class="lib-card">
+                st.markdown(
+                    f"""<div class="lib-card">
                     <div class="lib-name">📄 {meta["name"]}</div>
                     <div class="lib-meta">{meta["added"]}  �  {meta["size_mb"]} MB</div>
                     {tags_html}{notes_txt}
-                </div>''', unsafe_allow_html=True)
+                </div>""",
+                    unsafe_allow_html=True,
+                )
 
                 c1, c2, c3 = st.columns([2, 2, 1])
 
                 with c1:
                     # Open drawing in Analyze tab
-                    if st.button("Open & Analyze", key=f"open_{uid}", use_container_width=True):
+                    if st.button(
+                        "Open & Analyze", key=f"open_{uid}", use_container_width=True
+                    ):
                         try:
                             with open(meta["path"], "rb") as f:
                                 img_bytes = f.read()
                             import io
-                            fake_file      = io.BytesIO(img_bytes)
+
+                            fake_file = io.BytesIO(img_bytes)
                             fake_file.name = meta["name"]
-                            st.session_state["_lib_open_file"]     = img_bytes
-                            st.session_state["_lib_open_name"]     = meta["name"]
-                            st.session_state.current_drawing_name  = meta["name"]
-                            st.session_state.chat_history          = []
-                            st.session_state.messages_display      = []
-                            st.session_state.active_tab            = "analyze"
-                            st.info("Drawing loaded � switch to Analyze tab and upload the file to start chatting.")
+                            st.session_state["_lib_open_file"] = img_bytes
+                            st.session_state["_lib_open_name"] = meta["name"]
+                            st.session_state.current_drawing_name = meta["name"]
+                            st.session_state.chat_history = []
+                            st.session_state.messages_display = []
+                            st.session_state.active_tab = "analyze"
+                            st.info(
+                                "Drawing loaded � switch to Analyze tab and upload the file to start chatting."
+                            )
                             st.rerun()
                         except Exception as e:
                             st.error(f"Could not open file: {e}")
@@ -1641,21 +1802,32 @@ elif st.session_state.active_tab == "library":
                         with open(meta["path"], "rb") as f:
                             file_bytes = f.read()
                         st.download_button(
-                            "Download", data=file_bytes,
+                            "Download",
+                            data=file_bytes,
                             file_name=meta["name"],
-                            use_container_width=True, key=f"dl_{uid}",
+                            use_container_width=True,
+                            key=f"dl_{uid}",
                         )
-                    except:
-                        st.button("Download", disabled=True, use_container_width=True, key=f"dl_{uid}")
+                    except Exception:
+                        st.button(
+                            "Download",
+                            disabled=True,
+                            use_container_width=True,
+                            key=f"dl_{uid}",
+                        )
 
                 with c3:
                     # Delete from library
-                    if st.button("Clear", key=f"libdel_{uid}", use_container_width=True, help="Remove from library"):
+                    if st.button(
+                        "Clear",
+                        key=f"libdel_{uid}",
+                        use_container_width=True,
+                        help="Remove from library",
+                    ):
                         delete_from_library(uid)
                         st.rerun()
 
                 st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-
 
 
 # ------------------------------------------------------------------
@@ -1664,56 +1836,139 @@ elif st.session_state.active_tab == "library":
 
 elif st.session_state.active_tab == "standards":
 
-    st.markdown('<div class="section-label" style="margin-top:12px;">Standards Checker</div>', unsafe_allow_html=True)
-
-    st.markdown("""
-<div style="background:linear-gradient(135deg,rgba(249,115,22,0.10) 0%,rgba(249,115,22,0.03) 100%);
-            border:1px solid rgba(249,115,22,0.22);border-radius:12px;padding:16px 20px;margin-bottom:14px;">
-    <div style="font-size:14px;font-weight:700;color:#fff;font-family:Syne,sans-serif;margin-bottom:4px;">
-        Drawing Standards Compliance Check
-    </div>
-    <div style="font-size:12px;color:rgba(255,255,255,0.55);line-height:1.6;">
-        Upload any engineering drawing — Draft AI checks it against
-        <b style="color:#f97316;">ASME Y14.5</b>,
-        <b style="color:#f97316;">ISO GPS</b>, and
-        <b style="color:#f97316;">BS 8888</b> and returns a
-        scored Pass / Fail report across 8 categories.
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-    std_file = st.file_uploader(
-        "Upload drawing for standards check",
-        type=["png","jpg","jpeg","webp"],
-        label_visibility="collapsed",
-        key="std_uploader",
+    st.markdown(
+        '<div class="section-label" style="margin-top:12px;">Standards Checker</div>',
+        unsafe_allow_html=True,
     )
 
-    if std_file:
-        sz    = check_file_size(std_file)
-        valid, _ = validate_file(std_file)
-        if sz > MAX_FILE_SIZE_MB:
-            st.error(f"File too large: {sz:.1f} MB. Max {MAX_FILE_SIZE_MB} MB.")
-        elif not valid:
-            st.error("Invalid file. PNG, JPEG or WEBP only.")
-        else:
-            prev_col, btn_col = st.columns([3, 1])
-            with prev_col:
-                std_file.seek(0)
-                st.image(std_file.read(), use_container_width=True)
-                std_file.seek(0)
-            with btn_col:
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-                run_std = st.button("Run Check", type="primary", use_container_width=True)
-                st.markdown("""<div style="font-size:10px;color:rgba(255,255,255,0.2);margin-top:8px;line-height:1.5;font-family:DM Mono,monospace;">
-                    Checks 8 categories against ASME / ISO / BS 8888
-                </div>""", unsafe_allow_html=True)
+    st.markdown(
+        """
+<div style="background:linear-gradient(135deg,rgba(249,115,22,0.10) 0%,rgba(249,115,22,0.03) 100%);
+            border:1px solid rgba(249,115,22,0.22);border-radius:12px;padding:16px 20px;margin-bottom:14px;">
+    <div style="font-size:14px;font-weight:700;color:#fff;font-family:Syne,sans-serif;margin-bottom:6px;">
+        Drawing Standards &amp; 3D Model Analysis
+    </div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.55);line-height:1.8;">
+        Upload any engineering file — Draft AI checks it against
+        <b style="color:#f97316;">ASME Y14.5</b>,
+        <b style="color:#f97316;">ISO GPS</b>, and
+        <b style="color:#f97316;">BS 8888</b> and returns a scored Pass / Fail report across 8 categories.<br>
+        For <b style="color:#f97316;">STEP / STP / IGES / STL</b> files, the Draft AI SolidWorks add-in opens the model,
+        exports 2D views, extracts dimensions, and runs the full standards check automatically.
+    </div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        <span style="font-family:DM Mono,monospace;font-size:10px;background:rgba(249,115,22,0.12);color:#f97316;padding:3px 8px;border-radius:4px;border:1px solid rgba(249,115,22,0.2);">PNG · JPG · WEBP</span>
+        <span style="font-family:DM Mono,monospace;font-size:10px;background:rgba(249,115,22,0.12);color:#f97316;padding:3px 8px;border-radius:4px;border:1px solid rgba(249,115,22,0.2);">STEP · STP</span>
+        <span style="font-family:DM Mono,monospace;font-size:10px;background:rgba(249,115,22,0.12);color:#f97316;padding:3px 8px;border-radius:4px;border:1px solid rgba(249,115,22,0.2);">IGES · IGS</span>
+        <span style="font-family:DM Mono,monospace;font-size:10px;background:rgba(249,115,22,0.12);color:#f97316;padding:3px 8px;border-radius:4px;border:1px solid rgba(249,115,22,0.2);">STL</span>
+    </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
-            if run_std:
-                ip = get_client_ip()
-                allowed, remaining, mins_left = check_rate_limit(ip)
-                if not allowed:
-                    st.markdown(f"""
+    # ── Single unified uploader ──────────────────────────────────────────────
+    unified_file = st.file_uploader(
+        "Upload file for analysis",
+        type=["png", "jpg", "jpeg", "webp", "step", "stp", "iges", "igs", "stl"],
+        label_visibility="collapsed",
+        key="unified_std_uploader",
+    )
+    st.markdown(
+        '<div style="text-align:center;font-family:DM Mono,monospace;font-size:10px;color:rgba(255,255,255,0.2);padding:4px 0 10px;">PNG · JPG · WEBP · STEP · STP · IGES · IGS · STL</div>',
+        unsafe_allow_html=True,
+    )
+
+    if unified_file:
+        ext = unified_file.name.lower().rsplit(".", 1)[-1]
+        is_3d = ext in ("step", "stp", "iges", "igs", "stl")
+        is_img = ext in ("png", "jpg", "jpeg", "webp")
+
+        # ── 3D file path ─────────────────────────────────────────────────────
+        if is_3d:
+            from cad_converter import is_addin_running, prepare_and_export
+
+            addin_ok = is_addin_running()
+            if addin_ok:
+                st.markdown(
+                    '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:8px 14px;font-family:DM Mono,monospace;font-size:11px;color:#22c55e;margin-bottom:10px;">⚡ SolidWorks Add-in connected · Ready</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    '<div style="background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.25);border-radius:8px;padding:8px 14px;font-family:DM Mono,monospace;font-size:11px;color:#f97316;margin-bottom:10px;">⚠️ SolidWorks Add-in not detected — open SolidWorks with Draft AI add-in loaded</div>',
+                    unsafe_allow_html=True,
+                )
+
+            fc1, fc2 = st.columns([3, 1])
+            with fc1:
+                st.markdown(
+                    f"""
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px 16px;font-family:DM Mono,monospace;font-size:11px;">
+    <span style="color:#f97316;">⚙️</span>&nbsp; <span style="color:#fff;">{unified_file.name}</span>
+    <span style="color:rgba(255,255,255,0.3);margin-left:12px;">{check_file_size(unified_file):.1f} MB</span>
+</div>""",
+                    unsafe_allow_html=True,
+                )
+            with fc2:
+                run_3d = st.button(
+                    "⚡ Analyze via SW",
+                    type="primary",
+                    use_container_width=True,
+                    key="run_3d_unified",
+                )
+
+            if run_3d:
+                if not addin_ok:
+                    st.error("Cannot analyze — SolidWorks add-in is not running.")
+                else:
+                    with st.spinner("SolidWorks is opening and analyzing your file..."):
+                        try:
+                            unified_file.seek(0)
+                            sw_result = prepare_and_export(
+                                unified_file.read(), unified_file.name
+                            )
+                            st.session_state["step_analysis_result"] = sw_result
+                            st.session_state.standards_result = None
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Analysis failed: {e}")
+
+        # ── Image file path ───────────────────────────────────────────────────
+        elif is_img:
+            sz = check_file_size(unified_file)
+            valid, _ = validate_file(unified_file)
+            if sz > MAX_FILE_SIZE_MB:
+                st.error(f"File too large: {sz:.1f} MB. Max {MAX_FILE_SIZE_MB} MB.")
+            elif not valid:
+                st.error("Invalid image file.")
+            else:
+                prev_col, btn_col = st.columns([3, 1])
+                with prev_col:
+                    unified_file.seek(0)
+                    st.image(unified_file.read(), use_container_width=True)
+                    unified_file.seek(0)
+                with btn_col:
+                    st.markdown(
+                        "<div style='height:8px'></div>", unsafe_allow_html=True
+                    )
+                    run_std = st.button(
+                        "▶ Run Standards Check",
+                        type="primary",
+                        use_container_width=True,
+                        key="run_std_unified",
+                    )
+                    st.markdown(
+                        '<div style="font-size:10px;color:rgba(255,255,255,0.2);margin-top:8px;line-height:1.5;font-family:DM Mono,monospace;">Checks 8 categories against ASME / ISO / BS 8888</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                if run_std:
+                    ip = get_client_ip()
+                    allowed, remaining, mins_left = check_rate_limit(ip)
+                    if not allowed:
+                        st.markdown(
+                            f"""
 <div style="background:rgba(249,115,22,0.07);border:1px solid rgba(249,115,22,0.25);border-radius:12px;padding:16px 20px;margin:8px 0;">
     <div style="font-size:15px;margin-bottom:6px;">🪫 Whoa, easy there!</div>
     <div style="font-family:'Syne',sans-serif;font-size:13px;color:rgba(255,255,255,0.85);line-height:1.7;margin-bottom:10px;">
@@ -1726,34 +1981,121 @@ elif st.session_state.active_tab == "standards":
     <div style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:0.05em;">
         ⏱ Try again in ~{mins_left} min &nbsp;·&nbsp; Or donate and get more — coming soon
     </div>
-</div>
-""", unsafe_allow_html=True)
-                else:
-                    with st.spinner("Checking drawing against standards..."):
-                        std_file.seek(0)
+</div>""",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        with st.spinner("Checking drawing against standards..."):
+                            unified_file.seek(0)
+                            try:
+                                result = check_drawing_standards(unified_file)
+                                st.session_state.standards_result = result
+                                st.session_state["step_analysis_result"] = None
+                                increment_rate_limit(ip)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Standards check failed: {e}")
+
+    # ── SolidWorks 3D result ─────────────────────────────────────────────────
+    if st.session_state.get("step_analysis_result"):
+        sr = st.session_state["step_analysis_result"]
+        st.markdown(
+            '<div class="section-label" style="margin-top:14px;">SolidWorks Analysis Result</div>',
+            unsafe_allow_html=True,
+        )
+        if sr.get("ready"):
+            dims = sr.get("dimensions", {})
+            st.markdown(
+                f"""
+<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:16px 20px;margin-bottom:12px;">
+    <div style="font-size:13px;font-weight:700;color:#22c55e;margin-bottom:10px;">✅ File analyzed successfully via SolidWorks</div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;">
+        <div style="font-family:DM Mono,monospace;font-size:11px;color:rgba(255,255,255,0.6);">X <span style="color:#fff;margin-left:6px;">{dims.get('length','—')} mm</span></div>
+        <div style="font-family:DM Mono,monospace;font-size:11px;color:rgba(255,255,255,0.6);">Y <span style="color:#fff;margin-left:6px;">{dims.get('width','—')} mm</span></div>
+        <div style="font-family:DM Mono,monospace;font-size:11px;color:rgba(255,255,255,0.6);">Z <span style="color:#fff;margin-left:6px;">{dims.get('height','—')} mm</span></div>
+    </div>
+</div>""",
+                unsafe_allow_html=True,
+            )
+
+            views = sr.get("views", {})
+            view_order = ["front", "top", "side", "isometric"]
+            available = [
+                (v, views[v]) for v in view_order if views.get(v, {}).get("png")
+            ]
+            if available:
+                st.markdown(
+                    '<div class="section-label">Exported Views</div>',
+                    unsafe_allow_html=True,
+                )
+                vcols = st.columns(len(available))
+                for col, (vkey, vdata) in zip(vcols, available):
+                    with col:
+                        st.image(
+                            vdata["png"],
+                            caption=vdata.get("label", vkey.capitalize()),
+                            use_container_width=True,
+                        )
+
+            # ── Run standards check on the front view image ──────────────────
+            front_png = views.get("front", {}).get("png")
+            if front_png and not st.session_state.get("standards_result"):
+                ip = get_client_ip()
+                allowed, _, _ = check_rate_limit(ip)
+                if allowed:
+                    with st.spinner(
+                        "Running standards check on exported front view..."
+                    ):
                         try:
-                            result = check_drawing_standards(std_file)
+                            import io as _io
+
+                            img_buf = _io.BytesIO(front_png)
+                            img_buf.name = "front.png"
+                            result = check_drawing_standards(img_buf)
                             st.session_state.standards_result = result
                             increment_rate_limit(ip)
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"Standards check failed: {e}")
+                        except Exception:
+                            pass
 
-    # ── Results ──
+            if sr.get("pdf"):
+                st.download_button(
+                    "📄 Download Engineering PDF",
+                    data=sr["pdf"],
+                    file_name=f"{sr.get('filename','drawing')}_2D.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+        else:
+            st.error(f"Analysis error: {sr.get('reason', 'Unknown error')}")
+
+        if st.button("🗑 Clear Result", key="step_clear"):
+            st.session_state["step_analysis_result"] = None
+            st.session_state.standards_result = None
+            st.rerun()
+
+    # ── Standards check result ───────────────────────────────────────────────
     if st.session_state.get("standards_result"):
-        r       = st.session_state.standards_result
-        score   = r.get("overall_score", 0)
+        r = st.session_state.standards_result
+        score = r.get("overall_score", 0)
         verdict = r.get("verdict", "—")
         std_det = r.get("standard_detected", "Unknown")
 
         if verdict == "PASS":
-            v_color = "#16a34a"; v_bg = "rgba(22,163,74,0.08)";   v_border = "rgba(22,163,74,0.25)"
+            v_color = "#16a34a"
+            v_bg = "rgba(22,163,74,0.08)"
+            v_border = "rgba(22,163,74,0.25)"
         elif verdict == "CONDITIONAL PASS":
-            v_color = "#d97706"; v_bg = "rgba(217,119,6,0.08)";   v_border = "rgba(217,119,6,0.25)"
+            v_color = "#d97706"
+            v_bg = "rgba(217,119,6,0.08)"
+            v_border = "rgba(217,119,6,0.25)"
         else:
-            v_color = "#dc2626"; v_bg = "rgba(220,38,38,0.08)";   v_border = "rgba(220,38,38,0.25)"
+            v_color = "#dc2626"
+            v_bg = "rgba(220,38,38,0.08)"
+            v_border = "rgba(220,38,38,0.25)"
 
-        st.markdown(f"""
+        st.markdown(
+            f"""
 <div style="display:flex;gap:16px;margin:16px 0;align-items:stretch;flex-wrap:wrap;">
   <div style="flex:0 0 160px;background:{v_bg};border:1px solid {v_border};border-radius:12px;
               padding:20px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;">
@@ -1772,26 +2114,43 @@ elif st.session_state.active_tab == "standards":
     </div>
   </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+            unsafe_allow_html=True,
+        )
 
-        # Category breakdown
         checks = r.get("checks", [])
         if checks:
-            st.markdown('<div class="section-label" style="margin-top:4px;">Category Breakdown</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="section-label" style="margin-top:4px;">Category Breakdown</div>',
+                unsafe_allow_html=True,
+            )
             cols = st.columns(2)
             for i, chk in enumerate(checks):
                 cat_status = chk.get("status", "—")
-                cat_score  = chk.get("score", 0)
+                cat_score = chk.get("score", 0)
                 if cat_status == "PASS":
-                    cs_color = "#16a34a"; cs_bg = "rgba(22,163,74,0.06)";  cs_border = "rgba(22,163,74,0.18)"
+                    cs_color = "#16a34a"
+                    cs_bg = "rgba(22,163,74,0.06)"
+                    cs_border = "rgba(22,163,74,0.18)"
                 elif cat_status == "WARNING":
-                    cs_color = "#d97706"; cs_bg = "rgba(217,119,6,0.06)";  cs_border = "rgba(217,119,6,0.18)"
+                    cs_color = "#d97706"
+                    cs_bg = "rgba(217,119,6,0.06)"
+                    cs_border = "rgba(217,119,6,0.18)"
                 else:
-                    cs_color = "#dc2626"; cs_bg = "rgba(220,38,38,0.06)";  cs_border = "rgba(220,38,38,0.18)"
-                findings_html  = "".join(f'<div style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:2px;">✓ {f}</div>' for f in chk.get("findings",[])[:3])
-                violations_html= "".join(f'<div style="font-size:11px;color:#dc2626;margin-top:2px;">✗ {v}</div>'              for v in chk.get("violations",[])[:3])
+                    cs_color = "#dc2626"
+                    cs_bg = "rgba(220,38,38,0.06)"
+                    cs_border = "rgba(220,38,38,0.18)"
+                findings_html = "".join(
+                    f'<div style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:2px;">✓ {f}</div>'
+                    for f in chk.get("findings", [])[:3]
+                )
+                violations_html = "".join(
+                    f'<div style="font-size:11px;color:#dc2626;margin-top:2px;">✗ {v}</div>'
+                    for v in chk.get("violations", [])[:3]
+                )
                 with cols[i % 2]:
-                    st.markdown(f"""
+                    st.markdown(
+                        f"""
 <div style="background:{cs_bg};border:1px solid {cs_border};border-radius:10px;padding:12px 14px;margin-bottom:10px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <div style="font-size:12px;font-weight:600;color:#fff;font-family:Syne,sans-serif;">{chk.get("category","—")}</div>
@@ -1802,44 +2161,66 @@ elif st.session_state.active_tab == "standards":
         </div>
     </div>
     {findings_html}{violations_html}
-</div>""", unsafe_allow_html=True)
+</div>""",
+                        unsafe_allow_html=True,
+                    )
 
         crits = r.get("critical_violations", [])
         warns = r.get("warnings", [])
-        recs  = r.get("recommendations", [])
+        recs = r.get("recommendations", [])
 
         if crits:
-            st.markdown('<div class="section-label" style="margin-top:4px;">Critical Violations</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="section-label" style="margin-top:4px;">Critical Violations</div>',
+                unsafe_allow_html=True,
+            )
             for c in crits:
-                st.markdown(f'<div style="background:rgba(220,38,38,0.06);border:1px solid rgba(220,38,38,0.2);border-radius:8px;padding:10px 14px;margin-bottom:6px;font-size:12px;color:#fca5a5;font-family:Syne,sans-serif;">✗ {c}</div>', unsafe_allow_html=True)
-
+                st.markdown(
+                    f'<div style="background:rgba(220,38,38,0.06);border:1px solid rgba(220,38,38,0.2);border-radius:8px;padding:10px 14px;margin-bottom:6px;font-size:12px;color:#fca5a5;font-family:Syne,sans-serif;">✗ {c}</div>',
+                    unsafe_allow_html=True,
+                )
         if warns:
-            st.markdown('<div class="section-label" style="margin-top:8px;">Warnings</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="section-label" style="margin-top:8px;">Warnings</div>',
+                unsafe_allow_html=True,
+            )
             for w in warns:
-                st.markdown(f'<div style="background:rgba(217,119,6,0.06);border:1px solid rgba(217,119,6,0.18);border-radius:8px;padding:10px 14px;margin-bottom:6px;font-size:12px;color:#fcd34d;font-family:Syne,sans-serif;">⚠ {w}</div>', unsafe_allow_html=True)
-
+                st.markdown(
+                    f'<div style="background:rgba(217,119,6,0.06);border:1px solid rgba(217,119,6,0.18);border-radius:8px;padding:10px 14px;margin-bottom:6px;font-size:12px;color:#fcd34d;font-family:Syne,sans-serif;">⚠ {w}</div>',
+                    unsafe_allow_html=True,
+                )
         if recs:
-            st.markdown('<div class="section-label" style="margin-top:8px;">Recommendations</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="section-label" style="margin-top:8px;">Recommendations</div>',
+                unsafe_allow_html=True,
+            )
             for idx, rec in enumerate(recs, 1):
-                st.markdown(f'<div style="background:rgba(249,115,22,0.04);border:1px solid rgba(249,115,22,0.12);border-radius:8px;padding:10px 14px;margin-bottom:6px;font-size:12px;color:rgba(255,255,255,0.7);font-family:Syne,sans-serif;"><span style="color:#f97316;font-weight:700;">{idx}.</span> {rec}</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div style="background:rgba(249,115,22,0.04);border:1px solid rgba(249,115,22,0.12);border-radius:8px;padding:10px 14px;margin-bottom:6px;font-size:12px;color:rgba(255,255,255,0.7);font-family:Syne,sans-serif;"><span style="color:#f97316;font-weight:700;">{idx}.</span> {rec}</div>',
+                    unsafe_allow_html=True,
+                )
 
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
         if st.button("🗑 Clear Results", key="std_clear"):
             st.session_state.standards_result = None
             st.rerun()
 
-    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ------------------------------------------------------------------
-# TAB: 3D → 2D CONVERTER
+# TAB: 3D → 2D CONVERTER (PREMIUM FEATURE - PASSWORD PROTECTED)
 # ------------------------------------------------------------------
 
 elif st.session_state.active_tab == "cad3d":
 
-    from cad_converter import is_addin_running, prepare_and_export, load_results, OUTPUT_DIR
+    from cad_converter import is_addin_running, prepare_and_export
 
-    st.markdown("""
+    st.markdown(
+        """
 <style>
 .cad-hero{text-align:center;padding:28px 0 16px;}
 .cad-hero h1{font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:#fff;margin:0 0 6px;letter-spacing:-0.03em;}
@@ -1853,24 +2234,36 @@ elif st.session_state.active_tab == "cad3d":
 .install-step strong{color:#fff;}
 .install-step code{background:rgba(249,115,22,0.1);color:#f97316;padding:2px 6px;border-radius:4px;}
 </style>
-""", unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
 
-    st.markdown("""
+    st.markdown(
+        """
 <div class="cad-hero">
   <h1>3D → <span>2D</span> Converter</h1>
   <p>SOLIDWORKS ADD-IN · EXACT DIMENSIONS · PROFESSIONAL VIEWS</p>
-</div>""", unsafe_allow_html=True)
+</div>""",
+        unsafe_allow_html=True,
+    )
 
     # Check add-in status
     addin_ok = is_addin_running()
 
     if addin_ok:
-        st.markdown('<div class="addin-status addin-on">⚡ SolidWorks Add-in connected · Ready</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="addin-status addin-on">⚡ SolidWorks Add-in connected · Ready</div>',
+            unsafe_allow_html=True,
+        )
     else:
-        st.markdown('<div class="addin-status addin-off">⚠️ SolidWorks Add-in not detected · Install it below</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="addin-status addin-off">⚠️ SolidWorks Add-in not detected · Install it below</div>',
+            unsafe_allow_html=True,
+        )
 
         with st.expander("📦  Install the Draft AI SolidWorks Add-in", expanded=True):
-            st.markdown("""
+            st.markdown(
+                """
 <div class="install-card">
   <div style="font-family:'Syne',sans-serif;font-weight:700;color:#f97316;margin-bottom:12px;">
     One-time setup — takes ~5 minutes
@@ -1884,22 +2277,33 @@ elif st.session_state.active_tab == "cad3d":
     <strong>6.</strong> Come back here — this page will show ⚡ Connected
   </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+                unsafe_allow_html=True,
+            )
 
-        st.info("Once the add-in is installed, just keep SolidWorks open and upload files here.")
+        st.info(
+            "Once the add-in is installed, just keep SolidWorks open and upload files here."
+        )
 
     # Upload section (always visible)
     st.markdown("<br>", unsafe_allow_html=True)
     cad_file = st.file_uploader(
         "Upload CAD file",
-        type=["step","stp","iges","igs","stl"],
+        type=["step", "stp", "iges", "igs", "stl"],
         label_visibility="collapsed",
-        key="cad_uploader"
+        key="cad_uploader",
     )
-    st.markdown('<div style="text-align:center;font-family:DM Mono,monospace;font-size:11px;color:rgba(255,255,255,0.2);padding:6px 0 16px;">↑ STEP · STP · IGES · IGS · STL</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="text-align:center;font-family:DM Mono,monospace;font-size:11px;color:rgba(255,255,255,0.2);padding:6px 0 16px;">↑ STEP · STP · IGES · IGS · STL</div>',
+        unsafe_allow_html=True,
+    )
 
     if cad_file and addin_ok:
-        if st.button("⚡  Generate 2D Views via SolidWorks", use_container_width=True, key="cad_gen_btn"):
+        if st.button(
+            "⚡  Generate 2D Views via SolidWorks",
+            use_container_width=True,
+            key="cad_gen_btn",
+        ):
             with st.spinner("SolidWorks is processing your file..."):
                 try:
                     result = prepare_and_export(cad_file.read(), cad_file.name)
@@ -1914,62 +2318,101 @@ elif st.session_state.active_tab == "cad3d":
     # ── Results ──
     if "cad_result" in st.session_state and st.session_state["cad_result"]:
         result = st.session_state["cad_result"]
-        views  = result["views"]
-        dims   = result.get("dimensions", {})
+        views = result["views"]
+        dims = result.get("dimensions", {})
 
-        st.markdown("<hr style='border-color:rgba(255,255,255,0.06);margin:24px 0'>", unsafe_allow_html=True)
+        st.markdown(
+            "<hr style='border-color:rgba(255,255,255,0.06);margin:24px 0'>",
+            unsafe_allow_html=True,
+        )
 
         # Backend badge
-        st.markdown(f'''<div style="display:inline-flex;align-items:center;gap:8px;
+        st.markdown(
+            f"""<div style="display:inline-flex;align-items:center;gap:8px;
 background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);
 border-radius:6px;padding:5px 12px;font-family:DM Mono,monospace;
 font-size:10px;color:#22c55e;letter-spacing:0.06em;margin-bottom:16px;">
 ⚡ {result.get("backend","SolidWorks")} · Exact dimensions
-</div>''', unsafe_allow_html=True)
+</div>""",
+            unsafe_allow_html=True,
+        )
 
         # Dimensions
         if dims and "error" not in dims:
-            st.markdown('<div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.2);margin-bottom:10px;">Part Dimensions</div>', unsafe_allow_html=True)
-            d1,d2,d3,d4 = st.columns(4)
-            for col,label,val in [
-                (d1,"LENGTH (X)",f"{dims.get('length','—')} mm"),
-                (d2,"WIDTH (Y)", f"{dims.get('width','—')} mm"),
-                (d3,"HEIGHT (Z)",f"{dims.get('height','—')} mm"),
-                (d4,"SOURCE",    dims.get("source","SolidWorks")),
+            st.markdown(
+                '<div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.2);margin-bottom:10px;">Part Dimensions</div>',
+                unsafe_allow_html=True,
+            )
+            d1, d2, d3, d4 = st.columns(4)
+            for col, label, val in [
+                (d1, "X", f"{dims.get('length','—')} mm"),
+                (d2, "Y", f"{dims.get('width','—')} mm"),
+                (d3, "Z", f"{dims.get('height','—')} mm"),
+                (d4, "SOURCE", dims.get("source", "SolidWorks")),
             ]:
                 with col:
-                    st.markdown(f'<div style="background:#111;border:1px solid rgba(249,115,22,0.2);border-radius:10px;padding:14px 12px;text-align:center;"><div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.25);margin-bottom:6px;">{label}</div><div style="font-family:Syne,sans-serif;font-size:18px;font-weight:700;color:#f97316;">{val}</div></div>', unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#111;border:1px solid rgba(249,115,22,0.2);border-radius:10px;padding:14px 12px;text-align:center;"><div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.25);margin-bottom:6px;">{label}</div><div style="font-family:Syne,sans-serif;font-size:18px;font-weight:700;color:#f97316;">{val}</div></div>',
+                        unsafe_allow_html=True,
+                    )
 
         # Views
-        st.markdown('<div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.2);margin:20px 0 10px;">Generated Views</div>', unsafe_allow_html=True)
-        col1,col2 = st.columns(2)
-        for idx,(vkey,vdata) in enumerate(views.items()):
-            col = col1 if idx%2==0 else col2
+        st.markdown(
+            '<div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.2);margin:20px 0 10px;">Generated Views</div>',
+            unsafe_allow_html=True,
+        )
+        col1, col2 = st.columns(2)
+        for idx, (vkey, vdata) in enumerate(views.items()):
+            col = col1 if idx % 2 == 0 else col2
             with col:
-                st.markdown('<div style="background:#111;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:16px;margin-bottom:12px;">', unsafe_allow_html=True)
+                st.markdown(
+                    '<div style="background:#111;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:16px;margin-bottom:12px;">',
+                    unsafe_allow_html=True,
+                )
                 if vdata.get("png"):
                     b64 = base64.b64encode(vdata["png"]).decode()
-                    st.markdown(f'<img src="data:image/png;base64,{b64}" style="width:100%;border-radius:6px;">', unsafe_allow_html=True)
+                    st.markdown(
+                        f'<img src="data:image/png;base64,{b64}" style="width:100%;border-radius:6px;">',
+                        unsafe_allow_html=True,
+                    )
                 else:
-                    st.markdown(f'<div style="color:rgba(255,255,255,0.2);padding:40px;text-align:center;">{vdata.get("error","No view")}</div>', unsafe_allow_html=True)
-                st.markdown(f'<div style="font-family:DM Mono,monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);margin-top:8px;text-align:center;">{vdata["label"]}</div>', unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="color:rgba(255,255,255,0.2);padding:40px;text-align:center;">{vdata.get("error","No view")}</div>',
+                        unsafe_allow_html=True,
+                    )
+                st.markdown(
+                    f'<div style="font-family:DM Mono,monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);margin-top:8px;text-align:center;">{vdata["label"]}</div>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown("</div>", unsafe_allow_html=True)
 
         # Downloads
         import zipfile
-        dl1,_,dl3 = st.columns(3)
+
+        dl1, _, dl3 = st.columns(3)
         with dl1:
             zbuf = io.BytesIO()
-            with zipfile.ZipFile(zbuf,"w") as zf:
-                for vk,vd in views.items():
-                    if vd.get("png"): zf.writestr(f"{vk}.png", vd["png"])
-            st.download_button("⬇ PNG Views (.zip)", zbuf.getvalue(),
-                               f"{Path(result['filename']).stem}_views.zip",
-                               "application/zip", use_container_width=True, key="dl_png")
+            with zipfile.ZipFile(zbuf, "w") as zf:
+                for vk, vd in views.items():
+                    if vd.get("png"):
+                        zf.writestr(f"{vk}.png", vd["png"])
+            st.download_button(
+                "⬇ PNG Views (.zip)",
+                zbuf.getvalue(),
+                f"{Path(result['filename']).stem}_views.zip",
+                "application/zip",
+                use_container_width=True,
+                key="dl_png",
+            )
         with dl3:
-            st.download_button("⬇ PDF Drawing Sheet", result["pdf"],
-                               f"{Path(result['filename']).stem}_drawing.pdf",
-                               "application/pdf", use_container_width=True, key="dl_pdf")
+            st.download_button(
+                "⬇ PDF Drawing Sheet",
+                result["pdf"],
+                f"{Path(result['filename']).stem}_drawing.pdf",
+                "application/pdf",
+                use_container_width=True,
+                key="dl_pdf",
+            )
 
         if st.button("🗑 Clear", key="cad_clear"):
             del st.session_state["cad_result"]
@@ -1984,7 +2427,8 @@ else:
 
     # -- File uploader --
     uploaded_file = st.file_uploader(
-        "upload", type=["png","jpg","jpeg","webp","pdf"],
+        "upload",
+        type=["png", "jpg", "jpeg", "webp", "pdf"],
         label_visibility="collapsed",
         key=f"uploader_{st.session_state.uploader_key}",
     )
@@ -1992,15 +2436,20 @@ else:
     # -- If file is removed, clear cache immediately so stale image never shows --
     if not uploaded_file:
         st.session_state.current_drawing_image = None
-        st.session_state.current_drawing_name  = None
-        st.markdown('''<div class="upload-hint"><span>⬆</span> Drop your engineering drawing to begin &nbsp;·&nbsp; PNG · JPEG · WEBP · max 10 MB</div>''', unsafe_allow_html=True)
+        st.session_state.current_drawing_name = None
+        st.markdown(
+            """<div class="upload-hint"><span>⬆</span> Drop your engineering drawing to begin &nbsp;·&nbsp; PNG · JPEG · WEBP · max 10 MB</div>""",
+            unsafe_allow_html=True,
+        )
 
     file_ok = False
 
     if uploaded_file:
         size_mb = check_file_size(uploaded_file)
         if size_mb > MAX_FILE_SIZE_MB:
-            st.error(f"File too large: {size_mb:.1f} MB. Maximum is {MAX_FILE_SIZE_MB} MB.")
+            st.error(
+                f"File too large: {size_mb:.1f} MB. Maximum is {MAX_FILE_SIZE_MB} MB."
+            )
         else:
             is_valid, file_type = validate_file(uploaded_file)
             if not is_valid:
@@ -2012,6 +2461,7 @@ else:
                     st.error(f"Could not convert PDF: {result}")
                 else:
                     import io as _io
+
                     png_buf = _io.BytesIO(result)
                     png_buf.name = uploaded_file.name.rsplit(".", 1)[0] + ".png"
                     uploaded_file = png_buf
@@ -2022,7 +2472,9 @@ else:
                     uploaded_file.seek(0)
                     render_drawing_preview(img_bytes, uploaded_file.name)
                     st.session_state.current_drawing_name = uploaded_file.name
-                    st.session_state.current_drawing_image = base64.b64encode(img_bytes).decode("utf-8")
+                    st.session_state.current_drawing_image = base64.b64encode(
+                        img_bytes
+                    ).decode("utf-8")
             else:
                 file_ok = True
                 uploaded_file.seek(0)
@@ -2030,37 +2482,65 @@ else:
                 uploaded_file.seek(0)
                 render_drawing_preview(img_bytes, uploaded_file.name)
                 st.session_state.current_drawing_name = uploaded_file.name
-                st.session_state.current_drawing_image = base64.b64encode(img_bytes).decode("utf-8")
+                st.session_state.current_drawing_image = base64.b64encode(
+                    img_bytes
+                ).decode("utf-8")
 
     # -- Quick action buttons --
-    st.markdown('<div class="section-label" style="margin-top:8px;">Quick Analysis</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-label" style="margin-top:8px;">Quick Analysis</div>',
+        unsafe_allow_html=True,
+    )
     c1, c2, c3, c4 = st.columns(4, gap="small")
     with c1:
-        q1 = st.button("📐  Dimensions",       use_container_width=True)
-        q5 = st.button("📝  Summarize",        use_container_width=True)
+        q1 = st.button("📐  Dimensions", use_container_width=True)
+        q5 = st.button("📝  Summarize", use_container_width=True)
     with c2:
-        q2 = st.button("🎯  GD&T Analysis",    use_container_width=True)
-        q6 = st.button("⚠️  Design Concerns",  use_container_width=True)
+        q2 = st.button("🎯  GD&T Analysis", use_container_width=True)
+        q6 = st.button("⚠️  Design Concerns", use_container_width=True)
     with c3:
-        q3 = st.button("🧱  Material Rec.",    use_container_width=True)
-        q7 = st.button("🏭  Manufacturing",    use_container_width=True)
+        q3 = st.button("🧱  Material Rec.", use_container_width=True)
+        q7 = st.button("🏭  Manufacturing", use_container_width=True)
     with c4:
-        q4 = st.button("🏷️  Title Block",      use_container_width=True)
-        q8 = st.button("👁️  View Type",        use_container_width=True)
+        q4 = st.button("🏷️  Title Block", use_container_width=True)
+        q8 = st.button("👁️  View Type", use_container_width=True)
 
     # -- Advanced Features --
-    st.markdown('<div class="section-label" style="margin-top:10px;">Advanced Analysis</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-label" style="margin-top:10px;">Advanced Analysis</div>',
+        unsafe_allow_html=True,
+    )
     a1, a2, a3, a4, a5 = st.columns(5, gap="small")
     with a1:
-        qa1 = st.button("⚖️  Tolerance",       use_container_width=True, help="Analyse dimensional chains and worst-case fits")
+        qa1 = st.button(
+            "⚖️  Tolerance",
+            use_container_width=True,
+            help="Analyse dimensional chains and worst-case fits",
+        )
     with a2:
-        qa2 = st.button("🔬  DFM Score",       use_container_width=True, help="Score manufacturability 0-100 with breakdown")
+        qa2 = st.button(
+            "🔬  DFM Score",
+            use_container_width=True,
+            help="Score manufacturability 0-100 with breakdown",
+        )
     with a3:
-        qa3 = st.button("💰  Cost Est.",       use_container_width=True, help="Rough per-unit cost estimate across volumes")
+        qa3 = st.button(
+            "💰  Cost Est.",
+            use_container_width=True,
+            help="Rough per-unit cost estimate across volumes",
+        )
     with a4:
-        qa4 = st.button("🔍  Dim. Check",      use_container_width=True, help="Find missing dimensions, tolerances & annotations")
+        qa4 = st.button(
+            "🔍  Dim. Check",
+            use_container_width=True,
+            help="Find missing dimensions, tolerances & annotations",
+        )
     with a5:
-        qa5 = st.button("🔄  Rev. Diff",       use_container_width=True, help="Upload a second drawing to compare revisions")
+        qa5 = st.button(
+            "🔄  Rev. Diff",
+            use_container_width=True,
+            help="Upload a second drawing to compare revisions",
+        )
 
     # -- Revision comparison panel (shown only when Compare Revisions is active) --
     rev_file_b = None
@@ -2081,14 +2561,18 @@ else:
             label_visibility="collapsed",
             key="rev_b_uploader",
         )
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # -- Chat section --
-    st.markdown('''<div class="chat-section-header">Conversation</div>''', unsafe_allow_html=True)
+    st.markdown(
+        """<div class="chat-section-header">Conversation</div>""",
+        unsafe_allow_html=True,
+    )
 
     # Enable scroll only when chat has messages — no visible scrollbar
     if st.session_state.messages_display:
-        st.markdown("""<style>
+        st.markdown(
+            """<style>
 [data-testid="stMain"] {
     overflow-y: scroll !important;
     height: 100vh !important;
@@ -2103,19 +2587,24 @@ else:
     overflow: visible !important;
     padding-bottom: 220px !important;
 }
-</style>""", unsafe_allow_html=True)
+</style>""",
+            unsafe_allow_html=True,
+        )
 
     # suggestion chip state
     chip_question = None
 
     # -- Chat message display --
     if not st.session_state.messages_display:
-        st.markdown("""
+        st.markdown(
+            """
 <div class="chat-empty">
   <div class="chat-empty-icon">⚙️</div>
   <div class="chat-empty-title">No analysis yet</div>
   <div class="chat-empty-sub">Upload a drawing above, then tap a suggestion or ask anything</div>
-</div>""", unsafe_allow_html=True)
+</div>""",
+            unsafe_allow_html=True,
+        )
         # Real clickable suggestion buttons
         sc1, sc2, sc3, sc4 = st.columns(4, gap="small")
         with sc1:
@@ -2129,7 +2618,9 @@ else:
                 chip_question = "Is this drawing production ready? List any blockers."
         with sc4:
             if st.button("Suggest material", use_container_width=True, key="chip4"):
-                chip_question = "Suggest the best material for this part and explain why."
+                chip_question = (
+                    "Suggest the best material for this part and explain why."
+                )
     else:
         for msg in st.session_state.messages_display:
             if msg["role"] == "user":
@@ -2164,10 +2655,14 @@ else:
                         unsafe_allow_html=True,
                     )
 
-    st.markdown('<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>',
+        unsafe_allow_html=True,
+    )
 
     # -- Bottom input bar --
-    st.markdown("""
+    st.markdown(
+        """
 <div class="sticky-wrap"><div class="sticky-inner">
 <script>
 (function() {
@@ -2178,11 +2673,15 @@ else:
     }
 })();
 </script>
-""", unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
 
     custom_q = st.text_area(
-        "msg", placeholder="Ask anything about the drawing...",
-        label_visibility="collapsed", height=52,
+        "msg",
+        placeholder="Ask anything about the drawing...",
+        label_visibility="collapsed",
+        height=52,
     )
     col_ask, col_clear, col_pdf = st.columns([4, 1, 1], gap="small")
 
@@ -2190,8 +2689,10 @@ else:
         ask_btn = st.button("Analyze", type="primary", use_container_width=True)
 
     with col_clear:
-        if st.button("\U0001F5D1\uFE0F Clear", use_container_width=True, help="Clear chat"):
-            st.session_state.chat_history     = []
+        if st.button(
+            "\U0001f5d1\ufe0f Clear", use_container_width=True, help="Clear chat"
+        ):
+            st.session_state.chat_history = []
             st.session_state.messages_display = []
             st.rerun()
 
@@ -2203,56 +2704,81 @@ else:
                 title_block_data=st.session_state.title_block_data,
             )
             st.download_button(
-                "\U0001F4C4 Export PDF", data=pdf_buf,
+                "\U0001f4c4 Export PDF",
+                data=pdf_buf,
                 file_name="drawing_analysis.pdf",
                 mime="application/pdf",
                 use_container_width=True,
             )
         else:
-            st.button("\U0001F4C4 Export PDF", disabled=True, use_container_width=True)
+            st.button("\U0001f4c4 Export PDF", disabled=True, use_container_width=True)
 
-    st.markdown('</div></div>', unsafe_allow_html=True)
-
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
     # ------------------------------------------
     # PROCESS � Determine which action to run
     # ------------------------------------------
 
-    question       = None
+    question = None
     special_action = None
-    if 'chip_question' not in dir(): chip_question = None
+    if "chip_question" not in dir():
+        chip_question = None
     # Pick up questions forwarded from batch/BOM tabs
-    if st.session_state.get('_pending_question'):
-        question = st.session_state.pop('_pending_question')
+    if st.session_state.get("_pending_question"):
+        question = st.session_state.pop("_pending_question")
 
-    if   q1:  special_action = "dimensions"
-    elif q2:  special_action = "gdt"
-    elif q3:  special_action = "material"
-    elif q4:  special_action = "titleblock"
-    elif q5:  question = "Give a comprehensive summary: drawing type, component description, key dimensions, materials, and special requirements."
-    elif q6:  special_action = "design"
-    elif q7:  special_action = "manufacturing"
-    elif q8:  question = "Identify all views shown (front, side, top, isometric, section etc.) and explain what each view reveals about the component."
-    elif qa1: special_action = "tolerance_stackup"
-    elif qa2: special_action = "mfg_score"
-    elif qa3: special_action = "cost_estimate"
-    elif qa4: special_action = "missing_dims"
-    elif chip_question:            question = chip_question
-    elif ask_btn and custom_q:     question = custom_q
-    elif ask_btn and not custom_q: st.warning("Please type a question first.")
+    if q1:
+        special_action = "dimensions"
+    elif q2:
+        special_action = "gdt"
+    elif q3:
+        special_action = "material"
+    elif q4:
+        special_action = "titleblock"
+    elif q5:
+        question = "Give a comprehensive summary: drawing type, component description, key dimensions, materials, and special requirements."
+    elif q6:
+        special_action = "design"
+    elif q7:
+        special_action = "manufacturing"
+    elif q8:
+        question = "Identify all views shown (front, side, top, isometric, section etc.) and explain what each view reveals about the component."
+    elif qa1:
+        special_action = "tolerance_stackup"
+    elif qa2:
+        special_action = "mfg_score"
+    elif qa3:
+        special_action = "cost_estimate"
+    elif qa4:
+        special_action = "missing_dims"
+    elif chip_question:
+        question = chip_question
+    elif ask_btn and custom_q:
+        question = custom_q
+    elif ask_btn and not custom_q:
+        st.warning("Please type a question first.")
 
     # Spinner messages and user-facing labels per action
     ACTION_MAP = {
-        "dimensions":       ("Detecting dimensions...",            "Dimension Detection"),
-        "gdt":              ("Analyzing GD&T...",          "GD&T Analysis"),
-        "design":           ("Reviewing design concerns...",       "Design Concern Review"),
-        "material":         ("Generating material analysis...",    "Material Recommendation"),
-        "manufacturing":    ("Analyzing manufacturing methods...", "Manufacturing Suggestions"),
-        "titleblock":       ("Reading title block...",             "Title Block"),
-        "tolerance_stackup":("Calculating tolerance stack-up...",  "Tolerance Stack-Up Analysis"),
-        "mfg_score":        ("Scoring manufacturability...",       "Manufacturability Score"),
-        "cost_estimate":    ("Estimating part cost...",            "Cost Estimation"),
-        "missing_dims":     ("Checking for missing dimensions...", "Missing Dimension Detection"),
+        "dimensions": ("Detecting dimensions...", "Dimension Detection"),
+        "gdt": ("Analyzing GD&T...", "GD&T Analysis"),
+        "design": ("Reviewing design concerns...", "Design Concern Review"),
+        "material": ("Generating material analysis...", "Material Recommendation"),
+        "manufacturing": (
+            "Analyzing manufacturing methods...",
+            "Manufacturing Suggestions",
+        ),
+        "titleblock": ("Reading title block...", "Title Block"),
+        "tolerance_stackup": (
+            "Calculating tolerance stack-up...",
+            "Tolerance Stack-Up Analysis",
+        ),
+        "mfg_score": ("Scoring manufacturability...", "Manufacturability Score"),
+        "cost_estimate": ("Estimating part cost...", "Cost Estimation"),
+        "missing_dims": (
+            "Checking for missing dimensions...",
+            "Missing Dimension Detection",
+        ),
     }
 
     # -- Special action handler --
@@ -2263,7 +2789,8 @@ else:
             ip = get_client_ip()
             allowed, remaining, mins_left = check_rate_limit(ip)
             if not allowed:
-                st.markdown(f"""
+                st.markdown(
+                    f"""
 <div style="background:rgba(249,115,22,0.07);border:1px solid rgba(249,115,22,0.25);border-radius:12px;padding:16px 20px;margin:8px 0;">
     <div style="font-size:15px;margin-bottom:6px;">🪫 Whoa, easy there!</div>
     <div style="font-family:'Syne',sans-serif;font-size:13px;color:rgba(255,255,255,0.85);line-height:1.7;margin-bottom:10px;">
@@ -2277,37 +2804,60 @@ else:
         ⏱ Try again in ~{mins_left} min &nbsp;·&nbsp; Or donate and get more — coming soon
     </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+                    unsafe_allow_html=True,
+                )
             else:
                 spinner_msg, user_label = ACTION_MAP[special_action]
                 with st.spinner(spinner_msg):
                     uploaded_file.seek(0)
-                    if   special_action == "dimensions":        result = detect_dimensions(uploaded_file)
-                    elif special_action == "gdt":               result = analyze_gdt(uploaded_file)
-                    elif special_action == "design":            result = analyze_design_concerns(uploaded_file)
-                    elif special_action == "material":          result = analyze_material(uploaded_file)
-                    elif special_action == "manufacturing":     result = analyze_manufacturing(uploaded_file)
-                    elif special_action == "tolerance_stackup": result = analyze_tolerance_stackup(uploaded_file)
-                    elif special_action == "mfg_score":         result = analyze_manufacturability_score(uploaded_file)
-                    elif special_action == "cost_estimate":     result = estimate_cost(uploaded_file)
-                    elif special_action == "missing_dims":      result = detect_missing_dimensions(uploaded_file)
+                    if special_action == "dimensions":
+                        result = detect_dimensions(uploaded_file)
+                    elif special_action == "gdt":
+                        result = analyze_gdt(uploaded_file)
+                    elif special_action == "design":
+                        result = analyze_design_concerns(uploaded_file)
+                    elif special_action == "material":
+                        result = analyze_material(uploaded_file)
+                    elif special_action == "manufacturing":
+                        result = analyze_manufacturing(uploaded_file)
+                    elif special_action == "tolerance_stackup":
+                        result = analyze_tolerance_stackup(uploaded_file)
+                    elif special_action == "mfg_score":
+                        result = analyze_manufacturability_score(uploaded_file)
+                    elif special_action == "cost_estimate":
+                        result = estimate_cost(uploaded_file)
+                    elif special_action == "missing_dims":
+                        result = detect_missing_dimensions(uploaded_file)
                     elif special_action == "titleblock":
                         result = extract_title_block(uploaded_file)
                         st.session_state.title_block_data = result
                 increment_rate_limit(ip)
-                prefix     = {"dimensions": "__DIM__", "titleblock": "__TB__"}.get(special_action, "")
+                prefix = {"dimensions": "__DIM__", "titleblock": "__TB__"}.get(
+                    special_action, ""
+                )
                 ai_content = f"{prefix}{result}"
-                st.session_state.messages_display.append({"role": "user",      "content": user_label})
-                st.session_state.messages_display.append({"role": "ai",        "content": ai_content})
-                st.session_state.chat_history.append(    {"role": "user",      "content": user_label})
-                st.session_state.chat_history.append(    {"role": "assistant", "content": result})
+                st.session_state.messages_display.append(
+                    {"role": "user", "content": user_label}
+                )
+                st.session_state.messages_display.append(
+                    {"role": "ai", "content": ai_content}
+                )
+                st.session_state.chat_history.append(
+                    {"role": "user", "content": user_label}
+                )
+                st.session_state.chat_history.append(
+                    {"role": "assistant", "content": result}
+                )
                 persist_chat()
                 st.rerun()
 
     # -- Revision comparison handler (needs two files) --
     if st.session_state.show_revision_panel and rev_file_b:
         if not uploaded_file or not file_ok:
-            st.warning("Please upload the primary drawing (Rev A) using the upload box above first.")
+            st.warning(
+                "Please upload the primary drawing (Rev A) using the upload box above first."
+            )
         else:
             rev_size = check_file_size(rev_file_b)
             rev_valid, _ = validate_file(rev_file_b)
@@ -2321,10 +2871,21 @@ else:
                     rev_file_b.seek(0)
                     result = compare_revisions(uploaded_file, rev_file_b)
 
-                st.session_state.messages_display.append({"role": "user", "content": f"🔄 Compare Revisions: {uploaded_file.name} vs {rev_file_b.name}"})
-                st.session_state.messages_display.append({"role": "ai",   "content": result})
-                st.session_state.chat_history.append(    {"role": "user",      "content": "Compare drawing revisions"})
-                st.session_state.chat_history.append(    {"role": "assistant", "content": result})
+                st.session_state.messages_display.append(
+                    {
+                        "role": "user",
+                        "content": f"🔄 Compare Revisions: {uploaded_file.name} vs {rev_file_b.name}",
+                    }
+                )
+                st.session_state.messages_display.append(
+                    {"role": "ai", "content": result}
+                )
+                st.session_state.chat_history.append(
+                    {"role": "user", "content": "Compare drawing revisions"}
+                )
+                st.session_state.chat_history.append(
+                    {"role": "assistant", "content": result}
+                )
                 st.session_state.show_revision_panel = False
                 persist_chat()
                 st.rerun()
@@ -2336,7 +2897,8 @@ else:
             ip = get_client_ip()
             allowed, remaining, mins_left = check_rate_limit(ip)
             if not allowed:
-                st.markdown(f"""
+                st.markdown(
+                    f"""
 <div style="background:rgba(249,115,22,0.07);border:1px solid rgba(249,115,22,0.25);border-radius:12px;padding:16px 20px;margin:8px 0;">
     <div style="font-size:15px;margin-bottom:6px;">🪫 Whoa, easy there!</div>
     <div style="font-family:'Syne',sans-serif;font-size:13px;color:rgba(255,255,255,0.85);line-height:1.7;margin-bottom:10px;">
@@ -2350,15 +2912,27 @@ else:
         ⏱ Try again in ~{mins_left} min &nbsp;·&nbsp; Or donate and get more — coming soon
     </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+                    unsafe_allow_html=True,
+                )
             else:
                 with st.spinner("Analyzing..."):
                     uploaded_file.seek(0)
-                    answer = analyze_drawing(uploaded_file, question, st.session_state.chat_history)
+                    answer = analyze_drawing(
+                        uploaded_file, question, st.session_state.chat_history
+                    )
                 increment_rate_limit(ip)
-                st.session_state.messages_display.append({"role": "user",      "content": question})
-                st.session_state.messages_display.append({"role": "ai",        "content": answer})
-                st.session_state.chat_history.append(    {"role": "user",      "content": question})
-                st.session_state.chat_history.append(    {"role": "assistant", "content": answer})
+                st.session_state.messages_display.append(
+                    {"role": "user", "content": question}
+                )
+                st.session_state.messages_display.append(
+                    {"role": "ai", "content": answer}
+                )
+                st.session_state.chat_history.append(
+                    {"role": "user", "content": question}
+                )
+                st.session_state.chat_history.append(
+                    {"role": "assistant", "content": answer}
+                )
                 persist_chat()
                 st.rerun()

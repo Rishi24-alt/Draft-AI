@@ -51,7 +51,15 @@ def pdf_to_image_bytes(pdf_file, page=0, dpi=200):
     except Exception as e:
         return False, str(e)
 
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY")) if openai else None
+PROXY_URL = os.getenv("PROXY_URL", "https://web-production-a87eb.up.railway.app")
+
+if openai:
+    client = openai.OpenAI(
+        api_key="draft-ai-proxy",
+        base_url=PROXY_URL
+    )
+else:
+    client = None
 
 
 def _require_openai():
