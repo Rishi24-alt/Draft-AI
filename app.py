@@ -651,11 +651,7 @@ html, body {
     overflow: visible !important;
 }
 .stDeployButton, #MainMenu, footer { display: none !important; }
-[data-testid="stToolbar"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-}
+[data-testid="stToolbar"] { display: none !important; }
 [data-testid="stDecoration"] { display: none !important; }
 #stDecoration { display: none !important; }
 [class*="viewerBadge"] { display: none !important; }
@@ -694,30 +690,96 @@ html, body {
 .top-bar-file .dot { color: #22c55e; margin-right: 5px; }
 
 /* ── SIDEBAR TOGGLE ── */
-[data-testid="stSidebarCollapseButton"],
-[data-testid="collapsedControl"],
-[data-testid="stSidebarCollapsedControl"] {
+[data-testid="collapsedControl"] {
+    display: none !important;
+}
+[data-testid="stSidebarCollapseButton"] { display: none !important; }
+
+
+/* ── SIDEBAR COLLAPSE ARROW ── */
+/* Hide the default text/icon and replace with clean arrow */
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+    background: #0d0d0d !important;
+    border: 1px solid rgba(249,115,22,0.25) !important;
+    border-radius: 0 8px 8px 0 !important;
+    width: 24px !important;
+    height: 48px !important;
     display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: fixed !important;
+    top: 50% !important;
+    left: 0 !important;
+    transform: translateY(-50%) !important;
+    z-index: 99999 !important;
+    cursor: pointer !important;
+    transition: all 0.2s !important;
     visibility: visible !important;
     opacity: 1 !important;
-    z-index: 100002 !important;
 }
-[data-testid="collapsedControl"],
-[data-testid="stSidebarCollapsedControl"] {
+[data-testid="stSidebarCollapsedControl"]:hover,
+[data-testid="collapsedControl"]:hover {
+    background: rgba(249,115,22,0.12) !important;
+    border-color: rgba(249,115,22,0.5) !important;
+    width: 28px !important;
+}
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="collapsedControl"] svg {
+    color: #f97316 !important;
+    fill: #f97316 !important;
+    width: 14px !important;
+    height: 14px !important;
+}
+
+/* The expand/collapse button inside the sidebar */
+[data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"],
+[data-testid="stSidebar"] button[aria-label="close sidebar"],
+[data-testid="stSidebar"] button[aria-label="Close sidebar"],
+[data-testid="stSidebar"] button[kind="header"] {
+    background: transparent !important;
+    border: 1px solid rgba(249,115,22,0.2) !important;
+    border-radius: 0 8px 8px 0 !important;
+    color: #f97316 !important;
+    width: 24px !important;
+    height: 48px !important;
     position: fixed !important;
-    top: 90px !important;
-    left: 12px !important;
+    left: 238px !important;
+    top: 50% !important;
     transform: translateY(-50%) !important;
-    background: rgba(13,13,13,0.92) !important;
-    border: 1px solid rgba(249,115,22,0.35) !important;
-    border-radius: 8px !important;
-    padding: 2px !important;
+    z-index: 99999 !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+[data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"]:hover,
+[data-testid="stSidebar"] button[aria-label="close sidebar"]:hover {
+    background: rgba(249,115,22,0.1) !important;
+    border-color: #f97316 !important;
+}
+[data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"] svg,
+[data-testid="stSidebar"] button[aria-label="close sidebar"] svg {
+    color: #f97316 !important;
+    fill: #f97316 !important;
 }
 
 /* ── SIDEBAR ── */
 [data-testid="stSidebar"] {
     background: #0d0d0d !important;
     border-right: 1px solid rgba(255,255,255,0.05) !important;
+    min-width: 300px !important;
+    max-width: 300px !important;
+    transform: translateX(0) !important;
+    margin-left: 0 !important;
+    visibility: visible !important;
+}
+[data-testid="stSidebar"][aria-expanded="false"] {
+    min-width: 300px !important;
+    max-width: 300px !important;
+    transform: translateX(0) !important;
+    margin-left: 0 !important;
+    visibility: visible !important;
 }
 [data-testid="stSidebar"] > div:first-child { padding: 24px 14px !important; }
 
@@ -1889,6 +1951,7 @@ elif st.session_state.active_tab == "standards":
             from cad_converter import is_addin_running, prepare_and_export
 
             addin_ok = is_addin_running()
+            st.session_state.addin_ok_cache = addin_ok
             if addin_ok:
                 st.markdown(
                     '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:8px 14px;font-family:DM Mono,monospace;font-size:11px;color:#22c55e;margin-bottom:10px;">⚡ SolidWorks Add-in connected · Ready</div>',
@@ -2247,8 +2310,11 @@ elif st.session_state.active_tab == "cad3d":
         unsafe_allow_html=True,
     )
 
-    # Check add-in status
+    # Check add-in status — cache in session state to avoid re-render flash
+    if "addin_ok_cache" not in st.session_state:
+        st.session_state.addin_ok_cache = False
     addin_ok = is_addin_running()
+    st.session_state.addin_ok_cache = addin_ok
 
     if addin_ok:
         st.markdown(
@@ -2266,16 +2332,38 @@ elif st.session_state.active_tab == "cad3d":
                 """
 <div class="install-card">
   <div style="font-family:'Syne',sans-serif;font-weight:700;color:#f97316;margin-bottom:12px;">
-    One-time setup — takes ~5 minutes
+    One-time setup — takes ~2 minutes
   </div>
   <div class="install-step">
-    <strong>1.</strong> Download the add-in folder above (DraftAI_Addin.zip)<br>
-    <strong>2.</strong> Open <code>DraftAI_Addin.csproj</code> in Visual Studio <strong>as Administrator</strong><br>
-    <strong>3.</strong> Set platform to <code>x64</code>, then <strong>Build → Build Solution</strong><br>
-    <strong>4.</strong> Right-click <code>register_addin.reg</code> → <strong>Merge</strong> (run as Admin)<br>
-    <strong>5.</strong> Open SolidWorks → <strong>Tools → Add-Ins</strong> → enable <strong>Draft AI</strong><br>
-    <strong>6.</strong> Come back here — this page will show ⚡ Connected
+    <strong>1.</strong> Click the button below to download <code>DraftAI_Addin_V1.0.zip</code><br>
+    <strong>2.</strong> Extract the ZIP to any permanent folder on your PC<br>
+    <strong>3.</strong> Right-click <code>install.bat</code> → <strong>Run as Administrator</strong><br>
+    <strong>4.</strong> Open SolidWorks → <strong>Tools → Add-Ins</strong> → check <strong>Draft AI</strong> → OK<br>
+    <strong>5.</strong> Come back here — this page will show ⚡ Connected
   </div>
+</div>
+<div style="margin-top:14px;display:flex;align-items:center;gap:10px;">
+  <a href="https://github.com/Rishi24-alt/DraftAI-Addin/releases/download/v1/DraftAI_Addin_V1.0.zip"
+     style="display:inline-flex;align-items:center;gap:7px;
+            background:rgba(249,115,22,0.1);
+            border:1px solid rgba(249,115,22,0.35);
+            color:#f97316;
+            font-family:'DM Mono',monospace;
+            font-size:11px;
+            letter-spacing:0.04em;
+            padding:7px 14px;
+            border-radius:6px;
+            text-decoration:none;
+            transition:all 0.2s;
+            width:fit-content;"
+     onmouseover="this.style.background='#f97316';this.style.color='#000';this.style.borderColor='#f97316';"
+     onmouseout="this.style.background='rgba(249,115,22,0.1)';this.style.color='#f97316';this.style.borderColor='rgba(249,115,22,0.35)';">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px;flex-shrink:0;">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+    </svg>
+    Download Add-in v1.0
+  </a>
+  <span style="font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,0.2);">DraftAI_Addin_V1.0.zip · Windows · .NET 4.8</span>
 </div>
 """,
                 unsafe_allow_html=True,

@@ -290,6 +290,29 @@
         border-color: rgba(255, 255, 255, 0.15);
       }
 
+      .btn-download {
+        background: rgba(249,115,22,0.12);
+        color: #f97316;
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 14px 28px;
+        border-radius: 8px;
+        text-decoration: none;
+        border: 1px solid rgba(249,115,22,0.45);
+        transition: all 0.25s;
+        display: inline-flex;
+        align-items: center;
+      }
+      .btn-download:hover {
+        background: var(--orange);
+        color: #000;
+        border-color: var(--orange);
+        box-shadow: 0 0 24px rgba(249,115,22,0.4);
+        transform: translateY(-1px);
+      }
+
       .hero-proof {
         margin-top: 20px;
         font-family: var(--mono);
@@ -469,6 +492,90 @@
         font-size: 11px;
         color: var(--muted);
         line-height: 1.7;
+      }
+
+      /* ── NEW BADGE ── */
+      .new-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-family: var(--mono);
+        font-size: 9px;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #000;
+        background: var(--orange);
+        padding: 2px 8px;
+        border-radius: 4px;
+        margin-left: 8px;
+        vertical-align: middle;
+        position: relative;
+        top: -1px;
+      }
+      .new-badge::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: #000;
+        animation: blink 1.2s ease-in-out infinite;
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+      }
+
+      /* Feature card highlight for new features */
+      .feature-card.is-new {
+        background: linear-gradient(135deg, rgba(249,115,22,0.06) 0%, var(--bg2) 60%);
+        border-top: 1px solid rgba(249,115,22,0.25);
+      }
+      .feature-card.is-new .feature-num {
+        color: rgba(249,115,22,0.4);
+      }
+
+      /* Hero NEW features announcement bar */
+      .hero-new-bar {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        background: rgba(249,115,22,0.08);
+        border: 1px solid rgba(249,115,22,0.25);
+        border-radius: 100px;
+        padding: 10px 22px 10px 10px;
+        margin-bottom: 32px;
+        font-family: var(--mono);
+        font-size: 13px;
+        color: rgba(255,255,255,0.7);
+        letter-spacing: 0.05em;
+        animation: fadeUp 0.6s ease both;
+        cursor: default;
+      }
+      .hero-new-bar-badge {
+        background: var(--orange);
+        color: #000;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        padding: 4px 12px;
+        border-radius: 100px;
+        text-transform: uppercase;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .hero-new-bar-badge::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #000;
+        animation: blink 1.2s ease-in-out infinite;
+      }
+      .hero-new-bar span {
+        color: var(--orange);
+        font-weight: 500;
       }
 
       /* ── STANDARDS SPOTLIGHT ── */
@@ -1052,6 +1159,11 @@
         <em>Instantly.</em>
       </h1>
 
+      <div class="hero-new-bar">
+        <div class="hero-new-bar-badge">New</div>
+        <span>SolidWorks Add-in</span> &amp; <span>3D → 2D Converter</span> just launched
+      </div>
+
       <p class="hero-sub">
         Upload an engineering drawing — Draft AI reads dimensions, GD&T,
         tolerances, standards compliance, cost estimates and more. All in
@@ -1070,12 +1182,42 @@
           </svg>
           Start Free Trial
         </a>
-
+        <a href="https://github.com/Rishi24-alt/DraftAI-Addin/releases/download/v1/DraftAI_Addin_V1.0.zip" class="btn-download" download>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;margin-right:6px;">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+          </svg>
+          Download SolidWorks Add-in
+        </a>
       </div>
 
       <p class="hero-proof">
         Free plan available · No credit card required · <span>ASME Y14.5 · ISO GPS · BS 8888</span>
       </p>
+
+      <div style="
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        margin-top:16px;
+        background:rgba(255,255,255,0.03);
+        border:1px solid rgba(255,255,255,0.08);
+        border-radius:8px;
+        padding:10px 18px;
+        font-family:var(--mono);
+        font-size:10px;
+        color:rgba(255,255,255,0.35);
+        letter-spacing:0.04em;
+        animation: fadeUp 0.6s ease 0.5s both;
+      ">
+        <svg viewBox="0 0 24 24" fill="none" stroke="rgba(249,115,22,0.6)" stroke-width="2" style="width:13px;height:13px;flex-shrink:0;">
+          <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
+        </svg>
+        <span>
+          <span style="color:rgba(249,115,22,0.8);">Standards Checker (STEP/STP)</span> and
+          <span style="color:rgba(249,115,22,0.8);">3D → 2D Converter</span>
+          require the SolidWorks Add-in to be installed and active.
+        </span>
+      </div>
     </section>
 
     <!-- TICKER -->
@@ -1114,6 +1256,14 @@
           <div class="ticker-dot"></div>
           Title Block Extraction <b>·</b> Structured
         </div>
+        <div class="ticker-item">
+          <div class="ticker-dot"></div>
+          SolidWorks Add-in <b>·</b> Ctrl+Shift+A
+        </div>
+        <div class="ticker-item">
+          <div class="ticker-dot"></div>
+          3D → 2D Converter <b>·</b> STEP / STP
+        </div>
         <!-- repeat for seamless loop -->
         <div class="ticker-item">
           <div class="ticker-dot"></div>
@@ -1146,6 +1296,14 @@
         <div class="ticker-item">
           <div class="ticker-dot"></div>
           Title Block Extraction <b>·</b> Structured
+        </div>
+        <div class="ticker-item">
+          <div class="ticker-dot"></div>
+          SolidWorks Add-in <b>·</b> Ctrl+Shift+A
+        </div>
+        <div class="ticker-item">
+          <div class="ticker-dot"></div>
+          3D → 2D Converter <b>·</b> STEP / STP
         </div>
       </div>
     </div>
@@ -1187,7 +1345,7 @@
           <div class="feature-name">Standards Checker</div>
           <div class="feature-desc">
             Scored compliance report against ASME Y14.5, ISO GPS, and BS 8888.
-            Pass / Fail verdict across 8 categories. Know before you send.
+            Pass / Fail verdict across 8 categories. Now supports STEP &amp; STP files too.
           </div>
         </div>
         <div class="feature-card">
@@ -1242,6 +1400,32 @@
           <div class="feature-desc">
             Analyze up to 5 drawings at once. Get individual reports and export
             everything as a single Excel or PDF package.
+          </div>
+        </div>
+        <div class="feature-card is-new">
+          <div class="feature-num">10</div>
+          <span class="feature-icon">⚙️</span>
+          <div class="feature-name">
+            SolidWorks Add-in
+            <span class="new-badge">New</span>
+          </div>
+          <div class="feature-desc">
+            Press Ctrl+Shift+A inside any SolidWorks sketch. Draft AI instantly
+            tells you which entities are underdefined and what constraints are missing.
+            No switching tabs, no manual checking.
+          </div>
+        </div>
+        <div class="feature-card is-new">
+          <div class="feature-num">11</div>
+          <span class="feature-icon">🔄</span>
+          <div class="feature-name">
+            3D → 2D Converter
+            <span class="new-badge">New</span>
+          </div>
+          <div class="feature-desc">
+            Upload any STEP or STP file — Draft AI opens it in SolidWorks,
+            exports front, top, side and isometric views, extracts exact dimensions,
+            and generates a professional A3 drawing sheet with title block.
           </div>
         </div>
       </div>
@@ -1415,27 +1599,6 @@
     </section>
 
     <!-- STATS -->
-    <div class="stats-bar">
-      <div class="stat-item">
-        <div class="stat-num">500+</div>
-        <div class="stat-label">Engineers Using Draft AI</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-num">10k+</div>
-        <div class="stat-label">Drawings Analyzed</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-num">&lt;10s</div>
-        <div class="stat-label">Avg Analysis Time</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-num">14</div>
-        <div class="stat-label">Analysis Modes</div>
-      </div>
-    </div>
-
-
-
     <!-- TESTIMONIALS -->
     <section id="testimonials" class="reveal">
       <div class="section-label">What engineers say</div>
