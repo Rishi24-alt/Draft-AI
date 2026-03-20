@@ -2000,7 +2000,8 @@ elif st.session_state.active_tab == "standards":
                                 unified_file.read(), unified_file.name
                             )
                             st.session_state["step_analysis_result"] = sw_result
-                            st.session_state.standards_result = None
+                            st.session_state["standards_result"] = None  # force re-run
+                            st.session_state["standards_ran_for"] = None # reset tracker
                             st.rerun()
                         except Exception as e:
                             st.error(f"Analysis failed: {e}")
@@ -2110,24 +2111,23 @@ elif st.session_state.active_tab == "standards":
 
             # ── Run standards check on the front view image ──────────────────
             front_png = views.get("front", {}).get("png")
-            if front_png and not st.session_state.get("standards_result"):
+            already_ran = st.session_state.get("standards_ran_for") == sr.get("filename")
+            if front_png and not already_ran:
                 ip = get_client_ip()
                 allowed, _, _ = check_rate_limit(ip)
                 if allowed:
-                    with st.spinner(
-                        "Running standards check on exported front view..."
-                    ):
+                    with st.spinner("Running standards check on exported front view..."):
                         try:
                             import io as _io
-
                             img_buf = _io.BytesIO(front_png)
                             img_buf.name = "front.png"
                             result = check_drawing_standards(img_buf)
                             st.session_state.standards_result = result
+                            st.session_state["standards_ran_for"] = sr.get("filename")
                             increment_rate_limit(ip)
                             st.rerun()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            st.error(f"Standards check failed: {e}")
 
             if sr.get("pdf"):
                 st.download_button(
