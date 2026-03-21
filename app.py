@@ -1738,10 +1738,6 @@ with st.sidebar:
     render_navigation_panel("sidebar")
     render_auth_panel()
 
-# Silent auto-pair probe for signed-in users.
-if _is_authenticated():
-    _render_browser_auto_pair_probe()
-
 
 # ------------------------------------------------------------------
 # TOP NAV � App title with spinning gear + white/orange color split
@@ -2533,30 +2529,22 @@ elif st.session_state.active_tab == "standards":
 
         # ── 3D file path ─────────────────────────────────────────────────────
         if is_3d:
-            from cad_converter import is_addin_running, is_addin_online_cloud, prepare_and_export
+            from cad_converter import is_addin_running, prepare_and_export
 
             addin_local = is_addin_running()
-            addin_cloud = is_addin_online_cloud() if not addin_local else False
-            addin_ok    = addin_local or addin_cloud
+            addin_ok    = addin_local
             st.session_state.addin_ok_cache = addin_ok
 
             if addin_local:
                 st.markdown(
-                    '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:8px 14px;font-family:DM Mono,monospace;font-size:11px;color:#22c55e;margin-bottom:10px;">⚡ SolidWorks Add-in connected locally · Ready</div>',
-                    unsafe_allow_html=True,
-                )
-            elif addin_cloud:
-                st.markdown(
-                    '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:8px 14px;font-family:DM Mono,monospace;font-size:11px;color:#22c55e;margin-bottom:10px;">☁️ SolidWorks Add-in connected via cloud · Ready</div>',
+                    '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:8px 14px;font-family:DM Mono,monospace;font-size:11px;color:#22c55e;margin-bottom:10px;">⚡ SolidWorks Add-in connected on this PC · Ready</div>',
                     unsafe_allow_html=True,
                 )
             else:
                 st.markdown(
-                    '<div style="background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.25);border-radius:8px;padding:8px 14px;font-family:DM Mono,monospace;font-size:11px;color:#f97316;margin-bottom:10px;">⚠️ SolidWorks Add-in not detected — please open SolidWorks with Draft AI add-in loaded, then click Analyze</div>',
+                    '<div style="background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.25);border-radius:8px;padding:8px 14px;font-family:DM Mono,monospace;font-size:11px;color:#f97316;margin-bottom:10px;">⚠️ SolidWorks Add-in not detected on this PC — open SolidWorks with Draft AI add-in loaded, then click Analyze</div>',
                     unsafe_allow_html=True,
                 )
-
-            pairing_code = _render_pairing_controls("std")
 
             fc1, fc2 = st.columns([3, 1])
             with fc1:
@@ -2574,15 +2562,15 @@ elif st.session_state.active_tab == "standards":
                     type="primary",
                     use_container_width=True,
                     key="run_3d_unified",
+                    disabled=not addin_ok,
                 )
 
             if run_3d:
-                pairing = pairing_code or _effective_pairing_code()
-                can_try = addin_ok or bool(pairing)
+                can_try = addin_ok
                 if not can_try:
                     st.error(
-                        "⚠️ Add-in not detected yet. Open SolidWorks with Draft AI add-in loaded "
-                        "or enter your Pairing Code, then click Analyze again."
+                        "⚠️ SolidWorks Add-in must be running on this PC. "
+                        "Open SolidWorks with Draft AI add-in loaded, then click Analyze again."
                     )
                 else:
                     with st.spinner("SolidWorks is opening and analyzing your file..."):
@@ -2591,7 +2579,6 @@ elif st.session_state.active_tab == "standards":
                             sw_result = prepare_and_export(
                                 unified_file.read(),
                                 unified_file.name,
-                                user_token=pairing,
                             )
                             st.session_state["step_analysis_result"] = sw_result
                             st.session_state["standards_result"] = None  # force re-run
@@ -2905,12 +2892,12 @@ elif st.session_state.active_tab == "cad3d":
         render_feature_auth_gate("3D → 2D Converter", "cad3d")
         st.markdown(
             '<div style="font-family:DM Mono,monospace;font-size:10px;color:rgba(255,255,255,0.42);'
-            'margin-top:8px;">Sign in with Google to unlock SolidWorks cloud pairing and 3D → 2D conversion.</div>',
+            'margin-top:8px;">Sign in with Google to unlock 3D → 2D conversion on your local SolidWorks machine.</div>',
             unsafe_allow_html=True,
         )
         st.stop()
 
-    from cad_converter import is_addin_running, is_addin_online_cloud, prepare_and_export
+    from cad_converter import is_addin_running, prepare_and_export
 
     st.markdown(
         """
@@ -2945,25 +2932,17 @@ elif st.session_state.active_tab == "cad3d":
         st.session_state.addin_ok_cache = False
 
     addin_local = is_addin_running()
-    addin_cloud = is_addin_online_cloud() if not addin_local else False
-    addin_ok    = addin_local or addin_cloud
+    addin_ok    = addin_local
     st.session_state.addin_ok_cache = addin_ok
-
-    pairing_code = _render_pairing_controls("cad")
 
     if addin_local:
         st.markdown(
-            '<div class="addin-status addin-on">⚡ SolidWorks Add-in connected locally · Ready</div>',
-            unsafe_allow_html=True,
-        )
-    elif addin_cloud:
-        st.markdown(
-            '<div class="addin-status addin-on">☁️ SolidWorks Add-in connected via cloud · Ready</div>',
+            '<div class="addin-status addin-on">⚡ SolidWorks Add-in connected on this PC · Ready</div>',
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            '<div class="addin-status addin-off">⚠️ SolidWorks Add-in not detected · Open SolidWorks with Draft AI add-in loaded, then click Analyze</div>',
+            '<div class="addin-status addin-off">⚠️ SolidWorks Add-in not detected on this PC · Open SolidWorks with Draft AI add-in loaded, then click Analyze</div>',
             unsafe_allow_html=True,
         )
 
@@ -3035,13 +3014,13 @@ elif st.session_state.active_tab == "cad3d":
             "⚡  Generate 2D Views via SolidWorks",
             use_container_width=True,
             key="cad_gen_btn",
+            disabled=not addin_ok,
         ):
-            pairing = pairing_code or _effective_pairing_code()
-            can_try = addin_ok or bool(pairing)
+            can_try = addin_ok
             if not can_try:
                 st.warning(
-                    "⚠️ Add-in not detected yet. Open SolidWorks with Draft AI add-in loaded "
-                    "or enter your Pairing Code, then click Analyze."
+                    "⚠️ SolidWorks Add-in must be running on this PC. "
+                    "Open SolidWorks with Draft AI add-in loaded, then click Analyze."
                 )
             else:
                 with st.spinner("SolidWorks is processing your file... this may take up to 60 seconds"):
@@ -3049,7 +3028,6 @@ elif st.session_state.active_tab == "cad3d":
                         result = prepare_and_export(
                             cad_file.read(),
                             cad_file.name,
-                            user_token=pairing,
                         )
                         st.session_state["cad_result"] = result
                         st.rerun()
