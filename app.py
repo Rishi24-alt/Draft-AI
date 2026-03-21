@@ -2119,7 +2119,6 @@ elif st.session_state.active_tab == "standards":
                         try:
                             from utils import check_drawing_standards_multiview
                             import io as _io
-                            # Build dict of view png bytes
                             views_bytes = {}
                             for vkey, vdata in views.items():
                                 if vdata.get("png"):
@@ -2130,7 +2129,22 @@ elif st.session_state.active_tab == "standards":
                             increment_rate_limit(ip)
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Standards check failed: {e}")
+                            # Fall back to single front view if multiview fails
+                            try:
+                                import io as _io
+                                front_png = views.get("front", {}).get("png")
+                                if front_png:
+                                    buf = _io.BytesIO(front_png)
+                                    buf.name = "front.png"
+                                    result = check_drawing_standards(buf)
+                                    st.session_state.standards_result = result
+                                    st.session_state["standards_ran_for"] = sr.get("filename")
+                                    increment_rate_limit(ip)
+                                    st.rerun()
+                                else:
+                                    st.error(f"Standards check failed: {e}")
+                            except Exception as e2:
+                                st.error(f"Standards check failed: {e2}")
 
             if sr.get("pdf"):
                 st.download_button(

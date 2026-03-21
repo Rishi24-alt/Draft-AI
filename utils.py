@@ -1462,7 +1462,13 @@ def check_drawing_standards_multiview(views_dict: dict):
     clean = result.strip()
     if "```" in clean:
         clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
-    return json.loads(clean)
+    try:
+        return json.loads(clean)
+    except json.JSONDecodeError:
+        # If GPT didn't return JSON, fall back to single view
+        buf = io.BytesIO(image_list[0][1])
+        buf.name = f"{image_list[0][0]}.png"
+        return check_drawing_standards(buf)
 
 
 # ══════════════════════════════════════════════════════════════════
