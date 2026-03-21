@@ -19,6 +19,40 @@ ADDIN_URL  = "http://localhost:7432"
 OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "DraftAI_Output")
 
 
+def _json_from_response(raw: bytes, context: str) -> dict:
+    """Decode JSON API responses with clear error context."""
+    text = raw.decode("utf-8", errors="replace").strip()
+    if not text:
+        raise ValueError(f"{context} returned an empty response.")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        preview = text[:220].replace("\n", " ")
+        raise ValueError(f"{context} returned non-JSON response: {preview}") from e
+
+
+def _json_from_value(raw_value, context: str, default=None):
+    """Decode optional JSON string/dict values safely."""
+    if default is None:
+        default = {}
+
+    if raw_value is None or raw_value == "":
+        return default
+    if isinstance(raw_value, (dict, list)):
+        return raw_value
+    if isinstance(raw_value, bytes):
+        raw_value = raw_value.decode("utf-8", errors="replace")
+
+    text = str(raw_value).strip()
+    if not text:
+        return default
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        preview = text[:180].replace("\n", " ")
+        raise ValueError(f"{context} is not valid JSON: {preview}") from e
+
+
 # ─────────────────────────────────────────────────────────────
 # Image processing
 # ─────────────────────────────────────────────────────────────
@@ -46,7 +80,7 @@ def is_addin_running() -> bool:
     """Check if add-in is running locally on this machine."""
     try:
         with urllib.request.urlopen(f"{ADDIN_URL}/ping", timeout=2) as r:
-            return json.loads(r.read()).get("status") == "ok"
+            return _json_from_response(r.read(), "Local add-in /ping").get("status") == "ok"
     except Exception:
         return False
 
@@ -55,7 +89,7 @@ def is_addin_online_cloud() -> bool:
     """Check if any add-in instance is connected via cloud relay."""
     try:
         with urllib.request.urlopen(f"{CLOUD_URL}/addin/status", timeout=5) as r:
-            return json.loads(r.read()).get("online", False)
+            return _json_from_response(r.read(), "Cloud relay /addin/status").get("online", False)
     except Exception:
         return False
 
@@ -73,12 +107,12 @@ def _cloud_post(endpoint: str, payload: dict) -> dict:
         method="POST"
     )
     with urllib.request.urlopen(req, timeout=15) as r:
-        return json.loads(r.read())
+        return _json_from_response(r.read(), f"Cloud relay POST {endpoint}")
 
 
 def _cloud_get(endpoint: str) -> dict:
     with urllib.request.urlopen(f"{CLOUD_URL}{endpoint}", timeout=10) as r:
-        return json.loads(r.read())
+        return _json_from_response(r.read(), f"Cloud relay GET {endpoint}")
 
 
 def _cloud_poll(session_id: str, timeout: int = 120) -> dict:
@@ -89,7 +123,7 @@ def _cloud_poll(session_id: str, timeout: int = 120) -> dict:
             with urllib.request.urlopen(
                 f"{CLOUD_URL}/addin/poll/{session_id}", timeout=5
             ) as r:
-                data = json.loads(r.read())
+                data = _json_from_response(r.read(), f"Cloud relay poll {session_id}")
                 if data.get("status") != "waiting":
                     return data
         except Exception:
@@ -141,7 +175,7 @@ def prepare_and_export_cloud(file_bytes: bytes, filename: str) -> dict:
         raise RuntimeError(result.get("error", "Export failed"))
 
     views_b64 = result.get("views", {})
-    dims      = json.loads(result.get("dimensions", "{}"))
+    dims = _json_from_value(result.get("dimensions", {}), "Cloud relay dimensions")
     view_labels = {
         "front": "Front View", "top": "Top View",
         "side":  "Side View",  "isometric": "Isometric View"
@@ -196,7 +230,7 @@ def _prepare_and_export_local(file_bytes: bytes, filename: str) -> dict:
         method="POST"
     )
     with urllib.request.urlopen(req, timeout=120) as r:
-        result = json.loads(r.read())
+        result = _json_from_response(r.read(), "Local add-in /export")
 
     if not result.get("success"):
         raise RuntimeError(result.get("error", "Export failed"))
@@ -210,7 +244,7 @@ def load_results(output_dir: str = None) -> dict:
     if not os.path.exists(sf):
         return {"ready": False, "reason": "No results yet"}
     try:
-        status = json.loads(open(sf).read())
+        status = _json_from_value(open(sf).read(), "status.json")
         if not status.get("completed"):
             return {"ready": False, "reason": "Export did not complete"}
     except Exception:
@@ -219,7 +253,7 @@ def load_results(output_dir: str = None) -> dict:
     dims = {}
     df = os.path.join(output_dir, "dimensions.json")
     if os.path.exists(df):
-        dims = json.loads(open(df).read())
+        dims = _json_from_value(open(df).read(), "dimensions.json")
 
     view_labels = {
         "front": "Front View", "top": "Top View",

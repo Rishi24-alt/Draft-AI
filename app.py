@@ -2066,7 +2066,15 @@ elif st.session_state.active_tab == "standards":
                                 increment_rate_limit(ip)
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Standards check failed: {e}")
+                                err_msg = str(e)
+                                if "empty response from AI backend" in err_msg or "non-JSON output" in err_msg:
+                                    st.error(
+                                        "Standards check failed: AI backend returned invalid data. "
+                                        "Verify OPENAI_API_KEY is valid (single line, no line breaks) "
+                                        "and PROXY_URL points to a working OpenAI-compatible /v1 endpoint."
+                                    )
+                                else:
+                                    st.error(f"Standards check failed: {err_msg}")
 
     # ── SolidWorks 3D result ─────────────────────────────────────────────────
     if st.session_state.get("step_analysis_result"):
@@ -2132,7 +2140,14 @@ elif st.session_state.active_tab == "standards":
                             st.rerun()
                         except Exception as e:
                             err_msg = str(e)
-                            st.error(f"Standards check failed: {err_msg}")
+                            if "empty response from AI backend" in err_msg or "non-JSON output" in err_msg:
+                                st.error(
+                                    "Standards check failed: AI backend returned invalid data. "
+                                    "Verify OPENAI_API_KEY is valid (single line, no line breaks) "
+                                    "and PROXY_URL points to a working OpenAI-compatible /v1 endpoint."
+                                )
+                            else:
+                                st.error(f"Standards check failed: {err_msg}")
 
             if sr.get("pdf"):
                 st.download_button(

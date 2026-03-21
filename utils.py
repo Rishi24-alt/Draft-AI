@@ -1,6 +1,8 @@
 import base64
 import os
 import io
+import json
+import re
 from datetime import datetime
 
 try:
@@ -89,26 +91,110 @@ def pdf_to_image_bytes(pdf_file, page=0, dpi=200):
     except Exception as e:
         return False, str(e)
 
-_proxy_base = _get_secret("PROXY_URL", "https://web-production-a87eb.up.railway.app")
-PROXY_URL   = _proxy_base.rstrip("/")
+DEFAULT_PROXY_URL = "https://web-production-a87eb.up.railway.app"
+OPENAI_API_KEY = _get_secret("OPENAI_API_KEY", "").replace("\n", "").replace("\r", "").strip()
+PROXY_URL = _get_secret("PROXY_URL", "").strip().rstrip("/")
+
+# Backward compatibility:
+# If no direct key is configured, use the legacy hosted proxy.
+if not PROXY_URL and not OPENAI_API_KEY:
+    PROXY_URL = DEFAULT_PROXY_URL
 
 if openai:
-    client = openai.OpenAI(
-        api_key=_get_secret("OPENAI_API_KEY", "draft-ai-proxy"),
-        base_url=PROXY_URL + "/v1"
-    )
+    if PROXY_URL:
+        client = openai.OpenAI(
+            api_key=OPENAI_API_KEY or "draft-ai-proxy",
+            base_url=PROXY_URL + "/v1",
+        )
+    elif OPENAI_API_KEY:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    else:
+        client = None
 else:
     client = None
 
 
 def _require_openai():
     if client is None:
-        raise RuntimeError("OpenAI dependency is unavailable. Install the 'openai' package and redeploy.")
+        raise RuntimeError(
+            "OpenAI client is not configured. Set OPENAI_API_KEY (direct mode) "
+            "or PROXY_URL (OpenAI-compatible proxy mode)."
+        )
 
 
 def _require_reportlab():
     if SimpleDocTemplate is None:
         raise RuntimeError("PDF generation dependency is unavailable. Install 'reportlab' and redeploy.")
+
+
+def _extract_message_text(message) -> str:
+    """Normalize SDK message content to plain text."""
+    content = getattr(message, "content", "")
+
+    if isinstance(content, str):
+        return content.strip()
+
+    if isinstance(content, list):
+        chunks = []
+        for part in content:
+            if isinstance(part, dict):
+                txt = part.get("text")
+            else:
+                txt = getattr(part, "text", None)
+            if txt:
+                chunks.append(str(txt))
+        return "\n".join(chunks).strip()
+
+    if content is None:
+        refusal = getattr(message, "refusal", None)
+        if refusal:
+            return str(refusal).strip()
+        return ""
+
+    return str(content).strip()
+
+
+def _clean_model_json(raw_text: str) -> str:
+    """Remove fences/noise and keep only the JSON payload."""
+    clean = (raw_text or "").strip()
+    if not clean:
+        return ""
+
+    if "```" in clean:
+        clean = re.sub(r"```[a-zA-Z0-9_-]*", "", clean).replace("```", "").strip()
+
+    if clean and clean[0] not in "{[":
+        obj_start = clean.find("{")
+        obj_end = clean.rfind("}")
+        arr_start = clean.find("[")
+        arr_end = clean.rfind("]")
+        spans = []
+        if obj_start != -1 and obj_end > obj_start:
+            spans.append((obj_start, obj_end + 1))
+        if arr_start != -1 and arr_end > arr_start:
+            spans.append((arr_start, arr_end + 1))
+        if spans:
+            start, end = min(spans, key=lambda s: s[0])
+            clean = clean[start:end].strip()
+
+    return clean
+
+
+def _parse_json_response(raw_text: str, context: str):
+    """Parse model JSON output with actionable errors."""
+    clean = _clean_model_json(raw_text)
+    if not clean:
+        raise ValueError(
+            f"{context}: empty response from AI backend. "
+            "Check OPENAI_API_KEY / PROXY_URL and retry."
+        )
+    try:
+        return json.loads(clean)
+    except Exception as e:
+        preview = clean[:220].replace("\n", " ")
+        raise ValueError(
+            f"{context}: AI returned non-JSON output. Preview: {preview}"
+        ) from e
 
 # ── BASE FORMATTING RULES (shared by all prompts) ──
 FORMAT_RULES = """
@@ -246,11 +332,13 @@ ESTIMATED PRODUCTION NOTES:
 - Key cost drivers on this part"""
 
 
-def _call_vision_api(image_file, system_prompt, user_message, max_tokens=1400):
+def _call_vision_api(
+    image_file, system_prompt, user_message, max_tokens=1400, response_format=None
+):
     """Internal helper — single place where we call the API. No debug prints."""
     _require_openai()
     base64_image = base64.b64encode(image_file.read()).decode("utf-8")
-    response = client.chat.completions.create(
+    req = dict(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": system_prompt},
@@ -267,10 +355,15 @@ def _call_vision_api(image_file, system_prompt, user_message, max_tokens=1400):
         ],
         max_tokens=max_tokens
     )
-    return response.choices[0].message.content
+    if response_format is not None:
+        req["response_format"] = response_format
+    response = client.chat.completions.create(**req)
+    return _extract_message_text(response.choices[0].message)
 
 
-def _call_vision_api_multi(image_bytes_list, system_prompt, user_message, max_tokens=2200):
+def _call_vision_api_multi(
+    image_bytes_list, system_prompt, user_message, max_tokens=2200, response_format=None
+):
     """
     Send multiple images in a single API call.
     image_bytes_list: list of (label, bytes) tuples e.g. [("front", b"..."), ("top", b"...")]
@@ -286,7 +379,7 @@ def _call_vision_api_multi(image_bytes_list, system_prompt, user_message, max_to
         })
     content.append({"type": "text", "text": user_message})
 
-    response = client.chat.completions.create(
+    req = dict(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": system_prompt},
@@ -294,7 +387,10 @@ def _call_vision_api_multi(image_bytes_list, system_prompt, user_message, max_to
         ],
         max_tokens=max_tokens
     )
-    return response.choices[0].message.content
+    if response_format is not None:
+        req["response_format"] = response_format
+    response = client.chat.completions.create(**req)
+    return _extract_message_text(response.choices[0].message)
 
 
 def _call_vision_api_with_history(image_file, system_prompt, question, chat_history, max_tokens=1400):
@@ -319,7 +415,7 @@ def _call_vision_api_with_history(image_file, system_prompt, question, chat_hist
         messages=messages,
         max_tokens=max_tokens
     )
-    return response.choices[0].message.content
+    return _extract_message_text(response.choices[0].message)
 
 
 # ── PUBLIC FUNCTIONS ──
@@ -738,13 +834,10 @@ def batch_analyze_drawing(image_file, filename="drawing"):
             image_file,
             BATCH_PROMPT,
             f"Analyze this engineering drawing (filename: {filename}) and return the structured JSON report.",
-            max_tokens=800
+            max_tokens=800,
+            response_format={"type": "json_object"},
         )
-        import json, re
-        clean = result.strip()
-        if "```" in clean:
-            clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
-        return json.loads(clean)
+        return _parse_json_response(result, f"Batch analysis ({filename})")
     except Exception as e:
         return {
             "drawing_name": filename,
@@ -1182,13 +1275,10 @@ def generate_bom(image_file):
         image_file,
         BOM_PROMPT,
         "Extract the complete Bill of Materials from this engineering drawing. Return structured JSON only.",
-        max_tokens=2000
+        max_tokens=2000,
+        response_format={"type": "json_object"},
     )
-    import json, re
-    clean = result.strip()
-    if "```" in clean:
-        clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
-    return json.loads(clean)
+    return _parse_json_response(result, "BOM extraction")
 
 
 def generate_bom_excel(bom_data):
@@ -1443,13 +1533,10 @@ def check_drawing_standards(image_file):
         image_file,
         STANDARDS_CHECKER_PROMPT,
         "Perform a complete drawing standards compliance check on this engineering drawing. Return structured JSON only.",
-        max_tokens=2200
+        max_tokens=2200,
+        response_format={"type": "json_object"},
     )
-    import json, re
-    clean = result.strip()
-    if "```" in clean:
-        clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
-    return json.loads(clean)
+    return _parse_json_response(result, "Standards check")
 
 
 def check_drawing_standards_multiview(views_dict: dict):
