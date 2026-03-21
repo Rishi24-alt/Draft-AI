@@ -1454,61 +1454,27 @@ def check_drawing_standards(image_file):
 
 def check_drawing_standards_multiview(views_dict: dict):
     """
-    Standards compliance check using Gemini Vision.
-    Falls back to OpenAI single view if Gemini unavailable.
+    Standards compliance check using OpenAI GPT-4o vision.
+    Sends front + top views for comprehensive analysis.
     """
     import json
     import re
 
-    model = _get_gemini()
-
-    if model:
-        from PIL import Image as PILImage
-        images = []
-        labels = []
-        for vkey in ["front", "top", "side", "isometric"]:
-            png = views_dict.get(vkey)
-            if png:
-                img = PILImage.open(io.BytesIO(png)).convert("RGB")
-                if img.width > 1024:
-                    ratio = 1024 / img.width
-                    img = img.resize((1024, int(img.height * ratio)))
-                images.append(img)
-                labels.append(vkey.upper())
-
-        if not images:
-            raise ValueError("No views available")
-
-        prompt = f"""You are an expert engineering drawing standards checker.
-You are analyzing {len(images)} views of an engineering part: {', '.join(labels)}.
-
-{STANDARDS_CHECKER_PROMPT}
-
-Analyze ALL views together and return ONLY valid JSON. No explanation, no markdown."""
-
-        content = [prompt]
-        for label, img in zip(labels, images):
-            content.append(f"\n[{label} VIEW]:")
-            content.append(img)
-
-        response = model.generate_content(content)
-        raw = response.text.strip()
-        clean = raw
-        if "```" in clean:
-            clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
-        try:
-            return json.loads(clean)
-        except json.JSONDecodeError:
-            raise ValueError(f"Gemini returned non-JSON: {raw[:200]}")
-
-    # Gemini not available — fall back to OpenAI
+    # Use front view — most informative for standards checking
     front_png = views_dict.get("front")
-    if front_png:
-        buf = io.BytesIO(front_png)
-        buf.name = "front.png"
-        return check_drawing_standards(buf)
+    if not front_png:
+        # Try any available view
+        for vkey in ["top", "side", "isometric"]:
+            front_png = views_dict.get(vkey)
+            if front_png:
+                break
 
-    raise ValueError("No views available for standards check")
+    if not front_png:
+        raise ValueError("No views available for standards check")
+
+    buf = io.BytesIO(front_png)
+    buf.name = "front.png"
+    return check_drawing_standards(buf)
 
 
 # ══════════════════════════════════════════════════════════════════
