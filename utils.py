@@ -9,6 +9,18 @@ except ImportError:
     openai = None
 
 try:
+    import google.generativeai as genai
+    GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+    if GEMINI_KEY:
+        genai.configure(api_key=GEMINI_KEY)
+        gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+    else:
+        gemini_model = None
+except ImportError:
+    genai        = None
+    gemini_model = None
+
+try:
     from dotenv import load_dotenv
 except ImportError:
     load_dotenv = None
@@ -1416,59 +1428,63 @@ def check_drawing_standards(image_file):
 
 def check_drawing_standards_multiview(views_dict: dict):
     """
-    Standards compliance check using available 2D views.
+    Standards compliance check using Gemini Vision — faster, cheaper, better image reading.
+    Falls back to OpenAI single view if Gemini unavailable.
     views_dict: {"front": bytes, "top": bytes, "side": bytes, "isometric": bytes}
     """
     import json
     import re
 
-    # Compress images to reduce payload size — max 800px wide
-    def compress(png_bytes):
+    # Try Gemini first
+    if gemini_model:
         try:
             from PIL import Image as PILImage
-            img = PILImage.open(io.BytesIO(png_bytes)).convert("RGB")
-            # Resize if too large
-            if img.width > 800:
-                ratio = 800 / img.width
-                img = img.resize((800, int(img.height * ratio)), PILImage.LANCZOS)
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=75)
-            return buf.getvalue()
-        except Exception:
-            return png_bytes
+            images = []
+            labels = []
+            for vkey in ["front", "top", "side", "isometric"]:
+                png = views_dict.get(vkey)
+                if png:
+                    img = PILImage.open(io.BytesIO(png)).convert("RGB")
+                    # Resize if too large
+                    if img.width > 1024:
+                        ratio = 1024 / img.width
+                        img = img.resize((1024, int(img.height * ratio)))
+                    images.append(img)
+                    labels.append(vkey.upper())
 
-    # Use front + top views (most informative, keep payload small)
-    image_list = []
-    for vkey in ["front", "top", "side"]:
-        png = views_dict.get(vkey)
-        if png and len(image_list) < 2:
-            image_list.append((vkey, compress(png)))
+            if not images:
+                raise ValueError("No views available")
 
-    if not image_list:
-        raise ValueError("No view images provided")
+            prompt = f"""You are an expert engineering drawing standards checker.
+You are analyzing {len(images)} views of an engineering part: {', '.join(labels)}.
 
-    if len(image_list) == 1:
-        buf = io.BytesIO(image_list[0][1])
-        buf.name = f"{image_list[0][0]}.png"
+{STANDARDS_CHECKER_PROMPT}
+
+Analyze ALL views together and return ONLY valid JSON. No explanation, no markdown."""
+
+            content = [prompt]
+            for label, img in zip(labels, images):
+                content.append(f"\n[{label} VIEW]:")
+                content.append(img)
+
+            response = gemini_model.generate_content(content)
+            clean = response.text.strip()
+            if "```" in clean:
+                clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
+            return json.loads(clean)
+
+        except Exception as e:
+            # Fall through to OpenAI
+            pass
+
+    # Fall back to OpenAI single front view
+    front_png = views_dict.get("front")
+    if front_png:
+        buf = io.BytesIO(front_png)
+        buf.name = "front.png"
         return check_drawing_standards(buf)
 
-    result = _call_vision_api_multi(
-        image_list,
-        STANDARDS_CHECKER_PROMPT,
-        f"Analyze these {len(image_list)} engineering views ({', '.join(l for l,_ in image_list)}). "
-        "Perform a complete drawing standards compliance check. Return structured JSON only.",
-        max_tokens=2200
-    )
-    clean = result.strip()
-    if "```" in clean:
-        clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
-    try:
-        return json.loads(clean)
-    except json.JSONDecodeError:
-        # If GPT didn't return JSON, fall back to single view
-        buf = io.BytesIO(image_list[0][1])
-        buf.name = f"{image_list[0][0]}.png"
-        return check_drawing_standards(buf)
+    raise ValueError("No views available for standards check")
 
 
 # ══════════════════════════════════════════════════════════════════
