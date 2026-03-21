@@ -271,64 +271,85 @@ def set_user_pairing(username: str, pairing_code: str):
 
 
 def render_auth_panel():
-    """Render sign-in/sign-up panel. Returns True when authenticated."""
+    """Render branded sign-in/sign-up page. Returns True when authenticated."""
     user = st.session_state.get("auth_user")
     if user:
-        st.markdown(
-            f'<div style="font-family:DM Mono,monospace;font-size:11px;color:rgba(255,255,255,0.65);'
-            f'padding:8px 0 10px;">Signed in as <span style="color:#f97316;">{user}</span></div>',
-            unsafe_allow_html=True,
-        )
-        if st.button("Sign Out", key="auth_signout", use_container_width=True):
-            st.session_state.auth_user = None
-            st.session_state.cloud_pairing_token = ""
-            _sync_pair_code_to_query("")
-            st.rerun()
         return True
 
     st.markdown(
-        '<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#fff;margin:2px 0 8px;">Account</div>',
+        """
+<div class="auth-intro">
+  <div class="auth-kicker">DRAFT AI ACCESS</div>
+  <div class="auth-title">Sign In To Continue</div>
+  <div class="auth-sub">One account. One paired machine. Reliable routing.</div>
+</div>
+""",
         unsafe_allow_html=True,
     )
-    mode = st.radio(
-        "Auth Mode",
-        ["Sign In", "Create Account"],
-        horizontal=True,
-        label_visibility="collapsed",
-        key="auth_mode",
-    )
 
-    if mode == "Sign In":
-        u = st.text_input("Username", key="auth_login_user")
-        p = st.text_input("Password", type="password", key="auth_login_pass")
-        if st.button("Sign In", key="auth_login_btn", use_container_width=True):
-            ok, val = authenticate_user(u, p)
-            if ok:
-                st.session_state.auth_user = val
-                saved_pair = get_user_pairing(val)
-                if saved_pair:
-                    st.session_state.cloud_pairing_token = saved_pair
-                    _sync_pair_code_to_query(saved_pair)
-                st.rerun()
-            else:
-                st.error(val)
-    else:
-        u = st.text_input("Choose Username", key="auth_signup_user")
-        p1 = st.text_input("Choose Password", type="password", key="auth_signup_pass1")
-        p2 = st.text_input("Confirm Password", type="password", key="auth_signup_pass2")
-        if st.button("Create Account", key="auth_signup_btn", use_container_width=True):
-            if p1 != p2:
-                st.error("Passwords do not match.")
-            else:
-                ok, val = register_user(u, p1)
+    left, right = st.columns([1.15, 1], gap="large")
+
+    with left:
+        st.markdown(
+            """
+<div class="auth-feature-card">
+  <div class="auth-feature-title">Built For Real Engineering Workflows</div>
+  <div class="auth-feature-line">• Same visual language as draftai.cloud</div>
+  <div class="auth-feature-line">• Pair once, route to your own machine</div>
+  <div class="auth-feature-line">• No manual code typing every session</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+    with right:
+        st.markdown(
+            """
+<div class="auth-form-card">
+  <div class="auth-form-title">Account</div>
+  <div class="auth-form-sub">Use your Draft AI account to unlock machine memory.</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+        tabs = st.tabs(["Sign In", "Create Account"])
+
+        with tabs[0]:
+            u = st.text_input("Username", key="auth_login_user", placeholder="your.username")
+            p = st.text_input("Password", type="password", key="auth_login_pass", placeholder="••••••••")
+            if st.button("Sign In", key="auth_login_btn", use_container_width=True, type="primary"):
+                ok, val = authenticate_user(u, p)
                 if ok:
                     st.session_state.auth_user = val
-                    st.success("Account created. You are now signed in.")
+                    saved_pair = get_user_pairing(val)
+                    if saved_pair:
+                        st.session_state.cloud_pairing_token = saved_pair
+                        _sync_pair_code_to_query(saved_pair)
                     st.rerun()
                 else:
                     st.error(val)
 
-    st.info("Sign in once. Draft AI will remember your paired machine for this account.")
+        with tabs[1]:
+            u = st.text_input("Choose Username", key="auth_signup_user", placeholder="your.username")
+            p1 = st.text_input("Choose Password", type="password", key="auth_signup_pass1", placeholder="minimum 8 characters")
+            p2 = st.text_input("Confirm Password", type="password", key="auth_signup_pass2", placeholder="repeat password")
+            if st.button("Create Account", key="auth_signup_btn", use_container_width=True, type="primary"):
+                if p1 != p2:
+                    st.error("Passwords do not match.")
+                else:
+                    ok, val = register_user(u, p1)
+                    if ok:
+                        st.session_state.auth_user = val
+                        st.success("Account created. You are now signed in.")
+                        st.rerun()
+                    else:
+                        st.error(val)
+
+        st.markdown(
+            '<div class="auth-form-note">Sign in once and Draft AI remembers your paired machine for this account.</div>',
+            unsafe_allow_html=True,
+        )
     return False
 
 
@@ -1282,6 +1303,89 @@ div[data-testid="stHorizontalBlock"] div[data-testid="column"] > div > div > div
 .footer-txt { font-family: 'DM Mono', monospace; font-size: 9px; color: rgba(255,255,255,0.08); text-align: center; padding: 4px 0 2px; letter-spacing: 0.08em; text-transform: uppercase; }
 .footer-txt span { color: rgba(249,115,22,0.4); }
 
+/* ── AUTH PAGE ── */
+.auth-intro { margin: 28px 0 10px; }
+.auth-kicker {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(249,115,22,0.8);
+    margin-bottom: 8px;
+}
+.auth-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: #fff;
+    margin-bottom: 6px;
+}
+.auth-sub {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: rgba(255,255,255,0.45);
+    letter-spacing: 0.03em;
+}
+.auth-feature-card,
+.auth-form-card {
+    background: linear-gradient(145deg, rgba(255,255,255,0.025), rgba(249,115,22,0.03));
+    border: 1px solid rgba(249,115,22,0.16);
+    border-radius: 14px;
+    padding: 18px 20px;
+}
+.auth-feature-card { min-height: 212px; }
+.auth-feature-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 14px;
+}
+.auth-feature-line {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: rgba(255,255,255,0.65);
+    margin-bottom: 8px;
+    letter-spacing: 0.02em;
+}
+.auth-form-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 4px;
+}
+.auth-form-sub {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: rgba(255,255,255,0.45);
+    letter-spacing: 0.03em;
+}
+.auth-form-note {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: rgba(255,255,255,0.4);
+    letter-spacing: 0.03em;
+    margin-top: 8px;
+}
+[data-testid="stTabs"] button[role="tab"] {
+    font-family: 'DM Mono', monospace !important;
+    font-size: 10px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.1em !important;
+    color: rgba(255,255,255,0.45) !important;
+}
+[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+    color: #f97316 !important;
+}
+[data-testid="stTabs"] [data-baseweb="tab-border"] {
+    background: rgba(249,115,22,0.75) !important;
+}
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] {
+    background: rgba(249,115,22,0.75) !important;
+}
+
 /* ── SPLASH ── */
 #draft-ai-splash {
     position: fixed; inset: 0; background: #0b0b0b;
@@ -1407,25 +1511,29 @@ if _auth_user:
 # ------------------------------------------------------------------
 
 with st.sidebar:
-    _logged_in = render_auth_panel()
-    if _logged_in:
+    if st.session_state.get("auth_user"):
         render_navigation_panel("sidebar")
+        st.markdown('<div class="sb-label">Account</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="sb-quota">Signed in as: <span>{st.session_state.get("auth_user")}</span></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("Sign Out", key="auth_signout", use_container_width=True):
+            st.session_state.auth_user = None
+            st.session_state.cloud_pairing_token = ""
+            _sync_pair_code_to_query("")
+            st.rerun()
+    else:
+        st.markdown('<div class="sb-logo">Draft <span>AI</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="sb-sub">Engineering AI Workspace</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sb-label">Account</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="sb-quota">Sign in from the main panel to continue.</div>',
+            unsafe_allow_html=True,
+        )
 
 if not st.session_state.get("auth_user"):
-    st.markdown(
-        """
-<div style="max-width:680px;margin:42px auto 0;background:rgba(249,115,22,0.06);
-border:1px solid rgba(249,115,22,0.18);border-radius:12px;padding:18px 22px;">
-  <div style="font-family:Syne,sans-serif;font-size:18px;font-weight:700;color:#fff;margin-bottom:8px;">
-    Sign In Required
-  </div>
-  <div style="font-family:DM Mono,monospace;font-size:11px;color:rgba(255,255,255,0.65);line-height:1.8;">
-    Create an account once, then Draft AI remembers your paired SolidWorks machine for future sessions.
-  </div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
+    render_auth_panel()
     st.stop()
 
 
