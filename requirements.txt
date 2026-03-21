@@ -72,4 +72,3 @@ urllib3==2.6.3
 watchdog==6.0.0
 pdf2image
 svglib==1.5.1
-google-generativeai==0.8.3
