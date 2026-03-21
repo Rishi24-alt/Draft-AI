@@ -2001,8 +2001,13 @@ elif st.session_state.active_tab == "standards":
                 )
 
             if run_3d:
-                if not addin_ok:
-                    st.error("⚠️ SolidWorks Add-in not detected. Please open SolidWorks with Draft AI add-in loaded, then click Analyze again.")
+                pairing = st.session_state.get("cloud_pairing_token", "").strip()
+                can_try = addin_ok or bool(pairing)
+                if not can_try:
+                    st.error(
+                        "⚠️ Add-in not detected yet. Open SolidWorks with Draft AI add-in loaded "
+                        "or enter your Pairing Code, then click Analyze again."
+                    )
                 else:
                     with st.spinner("SolidWorks is opening and analyzing your file..."):
                         try:
@@ -2010,7 +2015,7 @@ elif st.session_state.active_tab == "standards":
                             sw_result = prepare_and_export(
                                 unified_file.read(),
                                 unified_file.name,
-                                user_token=st.session_state.get("cloud_pairing_token", ""),
+                                user_token=pairing,
                             )
                             st.session_state["step_analysis_result"] = sw_result
                             st.session_state["standards_result"] = None  # force re-run
@@ -2451,25 +2456,30 @@ elif st.session_state.active_tab == "cad3d":
     )
 
     if cad_file:
-        if addin_ok:
-            if st.button(
-                "⚡  Generate 2D Views via SolidWorks",
-                use_container_width=True,
-                key="cad_gen_btn",
-            ):
+        if st.button(
+            "⚡  Generate 2D Views via SolidWorks",
+            use_container_width=True,
+            key="cad_gen_btn",
+        ):
+            pairing = st.session_state.get("cloud_pairing_token", "").strip()
+            can_try = addin_ok or bool(pairing)
+            if not can_try:
+                st.warning(
+                    "⚠️ Add-in not detected yet. Open SolidWorks with Draft AI add-in loaded "
+                    "or enter your Pairing Code, then click Analyze."
+                )
+            else:
                 with st.spinner("SolidWorks is processing your file... this may take up to 60 seconds"):
                     try:
                         result = prepare_and_export(
                             cad_file.read(),
                             cad_file.name,
-                            user_token=st.session_state.get("cloud_pairing_token", ""),
+                            user_token=pairing,
                         )
                         st.session_state["cad_result"] = result
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
-        else:
-            st.warning("⚠️ Please open SolidWorks with Draft AI add-in loaded, then click Analyze.")
 
     # ── Results ──
     if "cad_result" in st.session_state and st.session_state["cad_result"]:
