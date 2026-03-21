@@ -1948,11 +1948,10 @@ elif st.session_state.active_tab == "standards":
 
         # ── 3D file path ─────────────────────────────────────────────────────
         if is_3d:
-            from cad_converter import is_addin_running, is_addin_online_cloud, prepare_and_export
+            from cad_converter import is_addin_running, prepare_and_export
 
             addin_local = is_addin_running()
-            addin_cloud = is_addin_online_cloud() if not addin_local else False
-            addin_ok    = addin_local or addin_cloud
+            addin_ok    = addin_local
             st.session_state.addin_ok_cache = addin_ok
 
             if addin_local:
@@ -1960,14 +1959,9 @@ elif st.session_state.active_tab == "standards":
                     '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:8px 14px;font-family:DM Mono,monospace;font-size:11px;color:#22c55e;margin-bottom:10px;">⚡ SolidWorks Add-in connected locally · Ready</div>',
                     unsafe_allow_html=True,
                 )
-            elif addin_cloud:
-                st.markdown(
-                    '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:8px 14px;font-family:DM Mono,monospace;font-size:11px;color:#22c55e;margin-bottom:10px;">☁️ SolidWorks Add-in connected via cloud · Ready</div>',
-                    unsafe_allow_html=True,
-                )
             else:
                 st.markdown(
-                    '<div style="background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.25);border-radius:8px;padding:8px 14px;font-family:DM Mono,monospace;font-size:11px;color:#f97316;margin-bottom:10px;">⚠️ SolidWorks Add-in not detected — open SolidWorks with Draft AI add-in loaded</div>',
+                    '<div style="background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.25);border-radius:8px;padding:8px 14px;font-family:DM Mono,monospace;font-size:11px;color:#f97316;margin-bottom:10px;">⚠️ SolidWorks Add-in not detected on this PC — open SolidWorks with Draft AI add-in loaded locally</div>',
                     unsafe_allow_html=True,
                 )
 
@@ -1991,7 +1985,7 @@ elif st.session_state.active_tab == "standards":
 
             if run_3d:
                 if not addin_ok:
-                    st.error("⚠️ SolidWorks Add-in not detected. Open SolidWorks with Draft AI add-in loaded and try again.")
+                    st.error("⚠️ Local SolidWorks Add-in not detected. Open SolidWorks with Draft AI add-in on this same PC and try again.")
                 else:
                     with st.spinner("SolidWorks is opening and analyzing your file..."):
                         try:
@@ -2308,7 +2302,7 @@ elif st.session_state.active_tab == "standards":
 
 elif st.session_state.active_tab == "cad3d":
 
-    from cad_converter import is_addin_running, is_addin_online_cloud, prepare_and_export
+    from cad_converter import is_addin_running, prepare_and_export
 
     st.markdown(
         """
@@ -2338,13 +2332,12 @@ elif st.session_state.active_tab == "cad3d":
         unsafe_allow_html=True,
     )
 
-    # Check add-in status — local first, then cloud relay
+    # Check add-in status — local only
     if "addin_ok_cache" not in st.session_state:
         st.session_state.addin_ok_cache = False
 
     addin_local = is_addin_running()
-    addin_cloud = is_addin_online_cloud() if not addin_local else False
-    addin_ok    = addin_local or addin_cloud
+    addin_ok    = addin_local
     st.session_state.addin_ok_cache = addin_ok
 
     if addin_local:
@@ -2352,14 +2345,9 @@ elif st.session_state.active_tab == "cad3d":
             '<div class="addin-status addin-on">⚡ SolidWorks Add-in connected locally · Ready</div>',
             unsafe_allow_html=True,
         )
-    elif addin_cloud:
-        st.markdown(
-            '<div class="addin-status addin-on">☁️ SolidWorks Add-in connected via cloud · Ready</div>',
-            unsafe_allow_html=True,
-        )
     else:
         st.markdown(
-            '<div class="addin-status addin-off">⚠️ SolidWorks Add-in not detected · Download and install it below, then open SolidWorks</div>',
+            '<div class="addin-status addin-off">⚠️ SolidWorks Add-in not detected on this PC · Install locally, then open SolidWorks here</div>',
             unsafe_allow_html=True,
         )
 
@@ -2378,8 +2366,8 @@ elif st.session_state.active_tab == "cad3d":
     <strong>5.</strong> Come back to <b>this website</b> (draftaii.streamlit.app) — it will show ⚡ Connected
   </div>
   <div style="margin-top:12px;padding:10px 14px;background:rgba(249,115,22,0.06);border-radius:8px;font-family:'DM Mono',monospace;font-size:11px;color:rgba(255,255,255,0.5);line-height:1.8;">
-    💡 <span style="color:#f97316;">You do NOT need to run anything locally.</span><br>
-    Just install the add-in, keep SolidWorks open, and use this website normally from any browser.
+    💡 <span style="color:#f97316;">Local-only mode is enabled.</span><br>
+    Analysis runs only when SolidWorks + Draft AI add-in are open on this same PC.
   </div>
 </div>
 <div style="margin-top:14px;display:flex;align-items:center;gap:10px;">
@@ -2441,7 +2429,7 @@ elif st.session_state.active_tab == "cad3d":
                     except Exception as e:
                         st.error(f"Error: {e}")
         else:
-            st.warning("⚠️ Open SolidWorks with the Draft AI add-in loaded, then click Analyze.")
+            st.warning("⚠️ Local-only mode: open SolidWorks with the Draft AI add-in on this same PC, then click Analyze.")
 
     # ── Results ──
     if "cad_result" in st.session_state and st.session_state["cad_result"]:

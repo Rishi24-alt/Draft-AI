@@ -208,7 +208,10 @@ def prepare_and_export_cloud(file_bytes: bytes, filename: str) -> dict:
 def prepare_and_export(file_bytes: bytes, filename: str) -> dict:
     if is_addin_running():
         return _prepare_and_export_local(file_bytes, filename)
-    return prepare_and_export_cloud(file_bytes, filename)
+    raise RuntimeError(
+        "Local-only mode: SolidWorks add-in is not running on this PC. "
+        "Open SolidWorks with Draft AI add-in loaded, then retry."
+    )
 
 
 def _prepare_and_export_local(file_bytes: bytes, filename: str) -> dict:
