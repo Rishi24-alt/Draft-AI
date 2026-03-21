@@ -54,12 +54,12 @@ def _json_from_value(raw_value, context: str, default=None):
         raise ValueError(f"{context} is not valid JSON: {preview}") from e
 
 
-def _sanitize_user_token(user_token: str) -> str:
-    """Keep user token predictable and URL-safe for relay matching."""
-    if not user_token:
+def _sanitize_pairing_code(pairing_code: str) -> str:
+    """Keep pairing code URL-safe without lossy truncation."""
+    if not pairing_code:
         return ""
-    clean = re.sub(r"[^A-Za-z0-9_-]", "", user_token.strip())
-    return clean[:64]
+    clean = re.sub(r"[^A-Za-z0-9_-]", "", pairing_code.strip())
+    return clean[:160]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -157,31 +157,27 @@ def _get_dedicated_addin(user_session: str) -> str:
 
 
 def prepare_and_export_cloud(file_bytes: bytes, filename: str, user_token: str = "") -> dict:
-    """Upload file to cloud relay using strict per-user add-in pairing."""
-    user_session = _sanitize_user_token(user_token)
-    if not user_session:
+    """Upload file to cloud relay using exact add-in machine pairing."""
+    pairing_code = _sanitize_pairing_code(user_token)
+    if not pairing_code:
         raise RuntimeError(
-            "Pairing code required. Enter your add-in pairing code before running cloud analyze."
+            "Pairing code required. Paste addin_id_cloud from http://localhost:7432/ping."
+        )
+    if "_" not in pairing_code:
+        raise RuntimeError(
+            "Invalid pairing code. Use full addin_id_cloud (not USER_TOKEN). "
+            "Open http://localhost:7432/ping and copy addin_id_cloud exactly."
         )
     session_id   = str(uuid.uuid4())[:12]
     b64          = base64.b64encode(file_bytes).decode()
 
-    # Get a dedicated add-in for this user
-    addin_id = _get_dedicated_addin(user_session)
-    if not addin_id:
-        raise RuntimeError(
-            "No paired SolidWorks add-in found for this pairing code. "
-            "Open SolidWorks on the same user machine and verify pairing code matches."
-        )
-    if not addin_id.startswith(user_session + "_"):
-        raise RuntimeError(
-            "Relay pairing mismatch detected. Refusing to run on an unpaired add-in."
-        )
+    # Strict routing: target one exact add-in instance only.
+    target_addin_id = pairing_code
 
-    # Push job directly to this user's add-in
+    # Push job directly to this exact paired add-in.
     _cloud_post("/addin/job", {
         "session_id": session_id,
-        "addin_id":   addin_id,
+        "addin_id":   target_addin_id,
         "job":        "export_3d",
         "filename":   filename,
         "file_b64":   b64,
@@ -190,6 +186,11 @@ def prepare_and_export_cloud(file_bytes: bytes, filename: str, user_token: str =
     result = _cloud_poll(session_id, timeout=120)
     if not result.get("success"):
         raise RuntimeError(result.get("error", "Export failed"))
+    result_addin_id = str(result.get("addin_id", "")).strip()
+    if result_addin_id and result_addin_id != target_addin_id:
+        raise RuntimeError(
+            "Relay safety check failed: result came from a different add-in instance."
+        )
 
     views_b64 = result.get("views", {})
     dims = _json_from_value(result.get("dimensions", {}), "Cloud relay dimensions")

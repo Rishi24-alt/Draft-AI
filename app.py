@@ -1976,11 +1976,11 @@ elif st.session_state.active_tab == "standards":
                 "Pairing Code",
                 value=pair_default,
                 key="std_pairing_code",
-                help="Required for cloud relay to route jobs only to your own add-in.",
-                placeholder="Example: rishi_pc01",
+                help="Required for cloud relay to route jobs to one exact add-in instance.",
+                placeholder="Paste addin_id_cloud from /ping",
             )
             st.session_state["cloud_pairing_token"] = pair_input.strip()
-            st.caption("Use the same code shown by your add-in (toast or `DraftAI_Output/openai_key.txt` line `USER_TOKEN=`).")
+            st.caption("Open `http://localhost:7432/ping` on your SolidWorks PC and paste `addin_id_cloud` exactly.")
 
             fc1, fc2 = st.columns([3, 1])
             with fc1:
@@ -2370,11 +2370,11 @@ elif st.session_state.active_tab == "cad3d":
         "Pairing Code",
         value=pair_default,
         key="cad_pairing_code",
-        help="Required for cloud relay to route jobs only to your own add-in.",
-        placeholder="Example: rishi_pc01",
+        help="Required for cloud relay to route jobs to one exact add-in instance.",
+        placeholder="Paste addin_id_cloud from /ping",
     )
     st.session_state["cloud_pairing_token"] = pair_input.strip()
-    st.caption("Use the same code shown by your add-in (toast or `DraftAI_Output/openai_key.txt` line `USER_TOKEN=`).")
+    st.caption("Open `http://localhost:7432/ping` on your SolidWorks PC and paste `addin_id_cloud` exactly.")
 
     if addin_local:
         st.markdown(
