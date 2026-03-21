@@ -67,9 +67,11 @@ _proxy_base = os.getenv("PROXY_URL", "https://web-production-a87eb.up.railway.ap
 PROXY_URL   = _proxy_base.rstrip("/")
 
 if openai:
+    # The OpenAI SDK appends /chat/completions to whatever base_url is set
+    # So base_url must end with /v1 to get /v1/chat/completions
     client = openai.OpenAI(
         api_key=os.getenv("OPENAI_API_KEY", "draft-ai-proxy"),
-        base_url=PROXY_URL
+        base_url=PROXY_URL + "/v1"
     )
 else:
     client = None
