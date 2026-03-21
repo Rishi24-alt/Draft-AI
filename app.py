@@ -43,6 +43,33 @@ import base64
 from datetime import datetime
 from pathlib import Path
 
+
+def _normalize_pair_code(value):
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    return str(value).strip()
+
+
+def _read_pair_code_from_query():
+    try:
+        return _normalize_pair_code(st.query_params.get("pair", ""))
+    except Exception:
+        return ""
+
+
+def _sync_pair_code_to_query(pair_code: str):
+    try:
+        code = _normalize_pair_code(pair_code)
+        if code:
+            if _normalize_pair_code(st.query_params.get("pair", "")) != code:
+                st.query_params["pair"] = code
+        elif "pair" in st.query_params:
+            del st.query_params["pair"]
+    except Exception:
+        pass
+
 # ------------------------------------------------------------------
 # PASSWORD PROTECTION - SELECTIVE (ONLY FOR 3D → 2D FEATURE)
 # ------------------------------------------------------------------
@@ -1158,6 +1185,14 @@ for k, v in [
 if "saved_chats" not in st.session_state:
     st.session_state.saved_chats = load_chats()
 
+if "cloud_pairing_token" not in st.session_state:
+    st.session_state.cloud_pairing_token = ""
+
+pair_from_query = _read_pair_code_from_query()
+if pair_from_query and pair_from_query != st.session_state.cloud_pairing_token:
+    st.session_state.cloud_pairing_token = pair_from_query
+_sync_pair_code_to_query(st.session_state.cloud_pairing_token)
+
 
 # ------------------------------------------------------------------
 # SIDEBAR
@@ -1980,6 +2015,7 @@ elif st.session_state.active_tab == "standards":
                 placeholder="Paste addin_id_cloud from /ping",
             )
             st.session_state["cloud_pairing_token"] = pair_input.strip()
+            _sync_pair_code_to_query(st.session_state["cloud_pairing_token"])
             st.caption("Open `http://localhost:7432/ping` on your SolidWorks PC and paste `addin_id_cloud` exactly.")
 
             fc1, fc2 = st.columns([3, 1])
@@ -2374,6 +2410,7 @@ elif st.session_state.active_tab == "cad3d":
         placeholder="Paste addin_id_cloud from /ping",
     )
     st.session_state["cloud_pairing_token"] = pair_input.strip()
+    _sync_pair_code_to_query(st.session_state["cloud_pairing_token"])
     st.caption("Open `http://localhost:7432/ping` on your SolidWorks PC and paste `addin_id_cloud` exactly.")
 
     if addin_local:
