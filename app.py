@@ -40,6 +40,8 @@ import io
 import re
 import time
 import base64
+import hashlib
+import hmac
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -139,9 +141,195 @@ MAX_BATCH_FILES = 5  # Max drawings per batch analysis
 MAX_FILE_SIZE_MB = 10  # Max upload size in megabytes
 MAX_REQUESTS_PER_IP = 2  # Max AI requests per hour per IP
 RATE_LIMIT_FILE = "rate_limits.json"
+USERS_FILE = "users.json"
+DEVICE_BINDINGS_FILE = "device_bindings.json"
 
 # Ensure drawing library folder exists on startup
 Path(LIBRARY_DIR).mkdir(exist_ok=True)
+
+
+# ------------------------------------------------------------------
+# AUTH & DEVICE BINDING
+# ------------------------------------------------------------------
+
+
+def _normalize_username(username: str) -> str:
+    if not username:
+        return ""
+    return re.sub(r"[^a-z0-9_.-]", "", username.strip().lower())
+
+
+def _is_valid_pairing_code(value: str) -> bool:
+    if not value:
+        return False
+    if "_" not in value:
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9_-]{8,180}", value))
+
+
+def _hash_password(password: str, salt_hex: str = "") -> str:
+    salt = bytes.fromhex(salt_hex) if salt_hex else os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200_000)
+    return f"{salt.hex()}${digest.hex()}"
+
+
+def _verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        salt_hex, expected_hex = stored_hash.split("$", 1)
+        test_hash = _hash_password(password, salt_hex).split("$", 1)[1]
+        return hmac.compare_digest(test_hash, expected_hex)
+    except Exception:
+        return False
+
+
+def _load_json_file(path: str, default):
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return default
+
+
+def _save_json_file(path: str, payload):
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
+def load_users():
+    data = _load_json_file(USERS_FILE, {"users": {}})
+    if not isinstance(data, dict) or "users" not in data:
+        return {"users": {}}
+    return data
+
+
+def save_users(data):
+    _save_json_file(USERS_FILE, data)
+
+
+def register_user(username: str, password: str):
+    uname = _normalize_username(username)
+    if len(uname) < 3:
+        return False, "Username must be at least 3 characters (letters/numbers/._-)."
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters."
+    users = load_users()
+    if uname in users["users"]:
+        return False, "Username already exists."
+    users["users"][uname] = {
+        "password_hash": _hash_password(password),
+        "created_at": datetime.now().isoformat(),
+    }
+    save_users(users)
+    return True, uname
+
+
+def authenticate_user(username: str, password: str):
+    uname = _normalize_username(username)
+    users = load_users()
+    rec = users["users"].get(uname)
+    if not rec:
+        return False, "Account not found."
+    if not _verify_password(password, rec.get("password_hash", "")):
+        return False, "Incorrect password."
+    return True, uname
+
+
+def load_device_bindings():
+    data = _load_json_file(DEVICE_BINDINGS_FILE, {"bindings": {}})
+    if not isinstance(data, dict) or "bindings" not in data:
+        return {"bindings": {}}
+    return data
+
+
+def save_device_bindings(data):
+    _save_json_file(DEVICE_BINDINGS_FILE, data)
+
+
+def get_user_pairing(username: str) -> str:
+    if not username:
+        return ""
+    bindings = load_device_bindings()["bindings"]
+    rec = bindings.get(username, {})
+    pair = _normalize_pair_code(rec.get("pairing_code", ""))
+    return pair if _is_valid_pairing_code(pair) else ""
+
+
+def set_user_pairing(username: str, pairing_code: str):
+    if not username:
+        return
+    pair = _normalize_pair_code(pairing_code)
+    if not _is_valid_pairing_code(pair):
+        return
+    data = load_device_bindings()
+    data["bindings"][username] = {
+        "pairing_code": pair,
+        "updated_at": datetime.now().isoformat(),
+    }
+    save_device_bindings(data)
+
+
+def render_auth_panel():
+    """Render sign-in/sign-up panel. Returns True when authenticated."""
+    user = st.session_state.get("auth_user")
+    if user:
+        st.markdown(
+            f'<div style="font-family:DM Mono,monospace;font-size:11px;color:rgba(255,255,255,0.65);'
+            f'padding:8px 0 10px;">Signed in as <span style="color:#f97316;">{user}</span></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("Sign Out", key="auth_signout", use_container_width=True):
+            st.session_state.auth_user = None
+            st.session_state.cloud_pairing_token = ""
+            _sync_pair_code_to_query("")
+            st.rerun()
+        return True
+
+    st.markdown(
+        '<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#fff;margin:2px 0 8px;">Account</div>',
+        unsafe_allow_html=True,
+    )
+    mode = st.radio(
+        "Auth Mode",
+        ["Sign In", "Create Account"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="auth_mode",
+    )
+
+    if mode == "Sign In":
+        u = st.text_input("Username", key="auth_login_user")
+        p = st.text_input("Password", type="password", key="auth_login_pass")
+        if st.button("Sign In", key="auth_login_btn", use_container_width=True):
+            ok, val = authenticate_user(u, p)
+            if ok:
+                st.session_state.auth_user = val
+                saved_pair = get_user_pairing(val)
+                if saved_pair:
+                    st.session_state.cloud_pairing_token = saved_pair
+                    _sync_pair_code_to_query(saved_pair)
+                st.rerun()
+            else:
+                st.error(val)
+    else:
+        u = st.text_input("Choose Username", key="auth_signup_user")
+        p1 = st.text_input("Choose Password", type="password", key="auth_signup_pass1")
+        p2 = st.text_input("Confirm Password", type="password", key="auth_signup_pass2")
+        if st.button("Create Account", key="auth_signup_btn", use_container_width=True):
+            if p1 != p2:
+                st.error("Passwords do not match.")
+            else:
+                ok, val = register_user(u, p1)
+                if ok:
+                    st.session_state.auth_user = val
+                    st.success("Account created. You are now signed in.")
+                    st.rerun()
+                else:
+                    st.error(val)
+
+    st.info("Sign in once. Draft AI will remember your paired machine for this account.")
+    return False
 
 
 # ------------------------------------------------------------------
@@ -1192,6 +1380,9 @@ for k, v in [
 if "saved_chats" not in st.session_state:
     st.session_state.saved_chats = load_chats()
 
+if "auth_user" not in st.session_state:
+    st.session_state.auth_user = None
+
 if "cloud_pairing_token" not in st.session_state:
     st.session_state.cloud_pairing_token = ""
 
@@ -1200,13 +1391,42 @@ if pair_from_query and pair_from_query != st.session_state.cloud_pairing_token:
     st.session_state.cloud_pairing_token = pair_from_query
 _sync_pair_code_to_query(st.session_state.cloud_pairing_token)
 
+_auth_user = st.session_state.get("auth_user")
+if _auth_user:
+    _saved_pair = get_user_pairing(_auth_user)
+    _current_pair = _normalize_pair_code(st.session_state.cloud_pairing_token)
+    if not _current_pair and _saved_pair:
+        st.session_state.cloud_pairing_token = _saved_pair
+        _sync_pair_code_to_query(_saved_pair)
+    elif _is_valid_pairing_code(_current_pair) and _current_pair != _saved_pair:
+        set_user_pairing(_auth_user, _current_pair)
+
 
 # ------------------------------------------------------------------
 # SIDEBAR
 # ------------------------------------------------------------------
 
 with st.sidebar:
-    render_navigation_panel("sidebar")
+    _logged_in = render_auth_panel()
+    if _logged_in:
+        render_navigation_panel("sidebar")
+
+if not st.session_state.get("auth_user"):
+    st.markdown(
+        """
+<div style="max-width:680px;margin:42px auto 0;background:rgba(249,115,22,0.06);
+border:1px solid rgba(249,115,22,0.18);border-radius:12px;padding:18px 22px;">
+  <div style="font-family:Syne,sans-serif;font-size:18px;font-weight:700;color:#fff;margin-bottom:8px;">
+    Sign In Required
+  </div>
+  <div style="font-family:DM Mono,monospace;font-size:11px;color:rgba(255,255,255,0.65);line-height:1.8;">
+    Create an account once, then Draft AI remembers your paired SolidWorks machine for future sessions.
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    st.stop()
 
 
 # ------------------------------------------------------------------
