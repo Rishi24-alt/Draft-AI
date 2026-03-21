@@ -8,9 +8,21 @@ try:
 except ImportError:
     openai = None
 
+# ── Read secrets from Streamlit if available, else fall back to env ──
+def _get_secret(key: str, default: str = "") -> str:
+    """Read from Streamlit secrets first, then os.getenv."""
+    try:
+        import streamlit as st
+        val = st.secrets.get(key, "")
+        if val:
+            return val
+    except Exception:
+        pass
+    return os.getenv(key, default)
+
 try:
     import google.generativeai as genai
-    GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_KEY = _get_secret("GEMINI_API_KEY")
     if GEMINI_KEY:
         genai.configure(api_key=GEMINI_KEY)
         gemini_model = genai.GenerativeModel("gemini-2.0-flash")
@@ -63,14 +75,12 @@ def pdf_to_image_bytes(pdf_file, page=0, dpi=200):
     except Exception as e:
         return False, str(e)
 
-_proxy_base = os.getenv("PROXY_URL", "https://web-production-a87eb.up.railway.app")
+_proxy_base = _get_secret("PROXY_URL", "https://web-production-a87eb.up.railway.app")
 PROXY_URL   = _proxy_base.rstrip("/")
 
 if openai:
-    # The OpenAI SDK appends /chat/completions to whatever base_url is set
-    # So base_url must end with /v1 to get /v1/chat/completions
     client = openai.OpenAI(
-        api_key=os.getenv("OPENAI_API_KEY", "draft-ai-proxy"),
+        api_key=_get_secret("OPENAI_API_KEY", "draft-ai-proxy"),
         base_url=PROXY_URL + "/v1"
     )
 else:
