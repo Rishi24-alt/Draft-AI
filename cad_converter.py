@@ -76,6 +76,11 @@ def _cloud_post(endpoint: str, payload: dict) -> dict:
         return json.loads(r.read())
 
 
+def _cloud_get(endpoint: str) -> dict:
+    with urllib.request.urlopen(f"{CLOUD_URL}{endpoint}", timeout=10) as r:
+        return json.loads(r.read())
+
+
 def _cloud_poll(session_id: str, timeout: int = 120) -> dict:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -95,13 +100,37 @@ def _cloud_poll(session_id: str, timeout: int = 120) -> dict:
     }
 
 
-def prepare_and_export_cloud(file_bytes: bytes, filename: str) -> dict:
-    """Upload file to cloud relay — add-in picks it up, processes, pushes results back."""
-    session_id = str(uuid.uuid4())[:12]
-    b64        = base64.b64encode(file_bytes).decode()
+def _get_dedicated_addin(user_session: str) -> str:
+    """
+    Get a dedicated add-in instance for this user session.
+    Returns addin_id or None if no add-in available.
+    """
+    result = _cloud_post("/addin/connect", {"user_session": user_session})
+    addin_id = result.get("addin_id")
+    status   = result.get("status")
+    if not addin_id or status == "no_addin_available":
+        return None
+    return addin_id
 
+
+def prepare_and_export_cloud(file_bytes: bytes, filename: str) -> dict:
+    """Upload file to cloud relay — user gets their own dedicated add-in instance."""
+    user_session = str(uuid.uuid4())[:12]
+    session_id   = str(uuid.uuid4())[:12]
+    b64          = base64.b64encode(file_bytes).decode()
+
+    # Get a dedicated add-in for this user
+    addin_id = _get_dedicated_addin(user_session)
+    if not addin_id:
+        raise RuntimeError(
+            "No SolidWorks add-in is currently available. "
+            "Please open SolidWorks with the Draft AI add-in loaded and try again."
+        )
+
+    # Push job directly to this user's add-in
     _cloud_post("/addin/job", {
         "session_id": session_id,
+        "addin_id":   addin_id,
         "job":        "export_3d",
         "filename":   filename,
         "file_b64":   b64,

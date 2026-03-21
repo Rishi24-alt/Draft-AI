@@ -2109,19 +2109,22 @@ elif st.session_state.active_tab == "standards":
                             use_container_width=True,
                         )
 
-            # ── Run standards check on the front view image ──────────────────
-            front_png = views.get("front", {}).get("png")
+            # ── Run standards check on ALL available views ────────────────────
             already_ran = st.session_state.get("standards_ran_for") == sr.get("filename")
-            if front_png and not already_ran:
+            if views and not already_ran:
                 ip = get_client_ip()
                 allowed, _, _ = check_rate_limit(ip)
                 if allowed:
-                    with st.spinner("Running standards check on exported front view..."):
+                    with st.spinner("Running standards check across all views..."):
                         try:
+                            from utils import check_drawing_standards_multiview
                             import io as _io
-                            img_buf = _io.BytesIO(front_png)
-                            img_buf.name = "front.png"
-                            result = check_drawing_standards(img_buf)
+                            # Build dict of view png bytes
+                            views_bytes = {}
+                            for vkey, vdata in views.items():
+                                if vdata.get("png"):
+                                    views_bytes[vkey] = vdata["png"]
+                            result = check_drawing_standards_multiview(views_bytes)
                             st.session_state.standards_result = result
                             st.session_state["standards_ran_for"] = sr.get("filename")
                             increment_rate_limit(ip)

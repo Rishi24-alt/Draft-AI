@@ -51,14 +51,13 @@ def pdf_to_image_bytes(pdf_file, page=0, dpi=200):
     except Exception as e:
         return False, str(e)
 
-PROXY_URL = os.getenv("PROXY_URL", "https://web-production-a87eb.up.railway.app")
+_proxy_base = os.getenv("PROXY_URL", "https://web-production-a87eb.up.railway.app")
+PROXY_URL   = _proxy_base.rstrip("/")
 
 if openai:
-    # OpenAI SDK automatically appends /v1 to base_url
-    # So set base_url WITHOUT /v1
     client = openai.OpenAI(
         api_key=os.getenv("OPENAI_API_KEY", "draft-ai-proxy"),
-        base_url=PROXY_URL.rstrip("/") + "/"
+        base_url=f"{PROXY_URL}/v1/"
     )
 else:
     client = None
@@ -227,6 +226,33 @@ def _call_vision_api(image_file, system_prompt, user_message, max_tokens=1400):
                     {"type": "text", "text": user_message}
                 ]
             }
+        ],
+        max_tokens=max_tokens
+    )
+    return response.choices[0].message.content
+
+
+def _call_vision_api_multi(image_bytes_list, system_prompt, user_message, max_tokens=2200):
+    """
+    Send multiple images in a single API call.
+    image_bytes_list: list of (label, bytes) tuples e.g. [("front", b"..."), ("top", b"...")]
+    """
+    _require_openai()
+    content = []
+    for label, img_bytes in image_bytes_list:
+        b64 = base64.b64encode(img_bytes).decode("utf-8")
+        content.append({"type": "text", "text": f"[{label.upper()} VIEW]"})
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{b64}", "detail": "high"}
+        })
+    content.append({"type": "text", "text": user_message})
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": content}
         ],
         max_tokens=max_tokens
     )
@@ -1382,6 +1408,43 @@ def check_drawing_standards(image_file):
         max_tokens=2200
     )
     import json, re
+    clean = result.strip()
+    if "```" in clean:
+        clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
+    return json.loads(clean)
+
+
+def check_drawing_standards_multiview(views_dict: dict):
+    """
+    Standards compliance check using all available 2D views.
+    views_dict: {"front": bytes, "top": bytes, "side": bytes, "isometric": bytes}
+    Returns parsed JSON dict.
+    """
+    import json, re
+    # Build list of (label, bytes) for available views
+    image_list = []
+    for vkey in ["front", "top", "side", "isometric"]:
+        png = views_dict.get(vkey)
+        if png:
+            image_list.append((vkey, png))
+
+    if not image_list:
+        raise ValueError("No view images provided")
+
+    # If only one view, fall back to single-image API
+    if len(image_list) == 1:
+        buf = io.BytesIO(image_list[0][1])
+        buf.name = f"{image_list[0][0]}.png"
+        return check_drawing_standards(buf)
+
+    result = _call_vision_api_multi(
+        image_list,
+        STANDARDS_CHECKER_PROMPT,
+        f"You are analyzing {len(image_list)} views of the same engineering part: {', '.join(l for l,_ in image_list)}. "
+        "Perform a complete drawing standards compliance check across ALL views. "
+        "Consider each view together for a comprehensive analysis. Return structured JSON only.",
+        max_tokens=2200
+    )
     clean = result.strip()
     if "```" in clean:
         clean = re.sub(r'```[a-z]*', '', clean).replace("```", "").strip()
