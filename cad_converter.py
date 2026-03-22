@@ -157,24 +157,27 @@ def _get_dedicated_addin(user_session: str) -> str:
 
 
 def prepare_and_export_cloud(file_bytes: bytes, filename: str, user_token: str = "") -> dict:
-    """Upload file to cloud relay using exact add-in machine pairing."""
-    pairing_code = _sanitize_pairing_code(user_token)
-    if not pairing_code:
-        raise RuntimeError(
-            "Pairing code required. Paste addin_id_cloud from http://localhost:7432/ping."
-        )
-    if "_" not in pairing_code:
-        raise RuntimeError(
-            "Invalid pairing code. Use full addin_id_cloud (not USER_TOKEN). "
-            "Open http://localhost:7432/ping and copy addin_id_cloud exactly."
-        )
+    """Upload file to cloud relay with automatic routing first, manual pairing as fallback."""
+    raw_token = (user_token or "").strip()
+    pairing_code = _sanitize_pairing_code(raw_token)
     session_id   = str(uuid.uuid4())[:12]
     b64          = base64.b64encode(file_bytes).decode()
 
-    # Strict routing: target one exact add-in instance only.
-    target_addin_id = pairing_code
+    # 1) If a full addin_id_cloud is provided, use strict exact routing.
+    # 2) Otherwise, ask cloud for a dedicated add-in bound to this user/session key.
+    target_addin_id = ""
+    if pairing_code and "_" in pairing_code:
+        target_addin_id = pairing_code
+    else:
+        user_session = raw_token or f"guest_{session_id}"
+        target_addin_id = _get_dedicated_addin(user_session)
+        if not target_addin_id:
+            raise RuntimeError(
+                "No SolidWorks add-in instance is currently available for this account. "
+                "Open SolidWorks with Draft AI add-in loaded on your machine, then retry."
+            )
 
-    # Push job directly to this exact paired add-in.
+    # Push job to the resolved add-in instance.
     _cloud_post("/addin/job", {
         "session_id": session_id,
         "addin_id":   target_addin_id,
