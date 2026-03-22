@@ -499,7 +499,9 @@ def _auth_display_name() -> str:
 def _do_sign_in():
     if _streamlit_auth_available():
         try:
-            st.login()
+            # This app uses a named provider in secrets.toml: [auth.google]
+            # So we must call st.login("google"), not st.login().
+            st.login("google")
             return
         except Exception as e:
             st.error(f"Google Sign-In is not configured yet: {e}")
@@ -521,23 +523,35 @@ def _do_sign_out():
 
 
 def render_auth_panel():
-    """Render compact account controls in sidebar."""
-    st.markdown('<div class="sb-label">Account</div>', unsafe_allow_html=True)
+    """Render account card in sidebar."""
     if _is_authenticated():
-        who = _auth_display_name() or "Signed In User"
-        st.markdown(
-            f'<div class="sb-quota">Signed in as: <span>{who}</span></div>',
-            unsafe_allow_html=True,
-        )
-        if st.button("Sign Out", key="auth_signout", use_container_width=True):
+        who   = _auth_display_name() or "User"
+        init  = who[0].upper()
+        short = who[:18] + ("…" if len(who) > 18 else "")
+        st.markdown(f'''
+<div class="sb-account">
+  <div class="sb-avatar">{init}</div>
+  <div class="sb-account-info">
+    <span class="sb-account-name">{short}</span>
+    <span class="sb-account-plan">Free Plan · {MAX_REQUESTS_PER_IP} req/hr</span>
+  </div>
+</div>
+''', unsafe_allow_html=True)
+        if st.button("Sign Out →", key="auth_signout", use_container_width=True):
             _do_sign_out()
         return True
 
-    st.markdown(
-        '<div class="sb-quota">Sign in with Google to use Standards Checker and 3D → 2D.</div>',
-        unsafe_allow_html=True,
-    )
-    if st.button("Sign In with Google", key="auth_signin_google", use_container_width=True, type="primary"):
+    # Not signed in
+    st.markdown('''
+<div style="background:rgba(249,115,22,0.05);border:1px solid rgba(249,115,22,0.15);
+            border-radius:8px;padding:10px 12px;margin-bottom:8px;
+            font-family:'DM Mono',monospace;font-size:10px;
+            color:rgba(255,255,255,0.3);line-height:1.7;">
+  Sign in to unlock Standards Checker &amp; 3D → 2D
+</div>
+''', unsafe_allow_html=True)
+    if st.button("Sign In with Google", key="auth_signin_google",
+                  use_container_width=True, type="primary"):
         _do_sign_in()
     return False
 
@@ -1224,53 +1238,145 @@ html, body {
 
 /* ── SIDEBAR ── */
 [data-testid="stSidebar"] {
-    background: #0d0d0d !important;
-    border-right: 1px solid rgba(255,255,255,0.05) !important;
-    min-width: 300px !important;
-    max-width: 300px !important;
+    background: #080808 !important;
+    border-right: 1px solid rgba(255,255,255,0.04) !important;
+    min-width: 260px !important;
+    max-width: 260px !important;
     transform: translateX(0) !important;
     margin-left: 0 !important;
     visibility: visible !important;
 }
 [data-testid="stSidebar"][aria-expanded="false"] {
-    min-width: 300px !important;
-    max-width: 300px !important;
+    min-width: 260px !important;
+    max-width: 260px !important;
     transform: translateX(0) !important;
     margin-left: 0 !important;
     visibility: visible !important;
 }
-[data-testid="stSidebar"] > div:first-child { padding: 24px 14px !important; }
+[data-testid="stSidebar"] > div:first-child { padding: 20px 12px 20px !important; }
 
-.sb-logo { font-family: 'Syne', sans-serif; font-size: 19px; font-weight: 800; letter-spacing: -0.04em; color: #fff; margin-top: -6px; margin-bottom: 1px; }
-.sb-logo span { color: #f97316; }
-.sb-sub  { font-size: 9px; color: rgba(255,255,255,0.15); font-family: 'DM Mono', monospace; letter-spacing: 0.1em; margin-bottom: 20px; text-transform: uppercase; }
-
-.sb-label {
-    font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.14em;
-    text-transform: uppercase; color: rgba(255,255,255,0.18);
-    margin-bottom: 4px; margin-top: 20px; padding-left: 2px;
+/* Logo */
+.sb-logo {
+    font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800;
+    letter-spacing: -0.04em; color: #fff; line-height: 1;
 }
-.sb-quota      { font-family: 'DM Mono', monospace; font-size: 10px; color: rgba(255,255,255,0.15); margin-bottom: 8px; padding-left: 2px; }
-.sb-quota span { color: #f97316; font-weight: 600; }
+.sb-logo span { color: #f97316; }
+.sb-badge {
+    display: inline-block; font-family: 'DM Mono', monospace; font-size: 8px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    background: rgba(249,115,22,0.12); color: #f97316;
+    border: 1px solid rgba(249,115,22,0.2); border-radius: 4px;
+    padding: 2px 6px; margin-left: 6px; vertical-align: middle;
+}
+.sb-tagline {
+    font-family: 'DM Mono', monospace; font-size: 9px;
+    color: rgba(255,255,255,0.2); letter-spacing: 0.08em;
+    margin-top: 4px; margin-bottom: 0;
+}
 
-/* Sidebar nav — ghost buttons with active-state left bar */
+/* Section labels */
+.sb-label {
+    font-family: 'DM Mono', monospace; font-size: 8.5px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: rgba(255,255,255,0.15);
+    margin-bottom: 6px; margin-top: 22px; padding-left: 10px;
+    display: flex; align-items: center; gap: 6px;
+}
+.sb-label::before {
+    content: ''; display: inline-block; width: 14px; height: 1px;
+    background: rgba(255,255,255,0.1);
+}
+
+/* Stats pills */
+.sb-stats {
+    display: flex; gap: 6px; margin-bottom: 16px; padding: 0 2px;
+}
+.sb-stat {
+    flex: 1; background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px; padding: 8px 6px; text-align: center;
+}
+.sb-stat-val {
+    font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 800;
+    color: #f97316; line-height: 1; display: block;
+}
+.sb-stat-lbl {
+    font-family: 'DM Mono', monospace; font-size: 8px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: rgba(255,255,255,0.2);
+    display: block; margin-top: 3px;
+}
+
+/* Nav icons map */
+.sb-nav-icon { margin-right: 8px; opacity: 0.6; font-size: 13px; }
+
+/* Divider */
+.sb-divider {
+    height: 1px; background: rgba(255,255,255,0.04);
+    margin: 16px 4px;
+}
+
+/* Account card */
+.sb-account {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px; padding: 10px 12px;
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 8px;
+}
+.sb-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 800;
+    color: #fff; flex-shrink: 0;
+}
+.sb-account-info { overflow: hidden; }
+.sb-account-name {
+    font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 600;
+    color: rgba(255,255,255,0.8); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; display: block;
+}
+.sb-account-plan {
+    font-family: 'DM Mono', monospace; font-size: 9px;
+    color: rgba(255,255,255,0.25); letter-spacing: 0.06em;
+}
+
+/* Nav buttons */
 [data-testid="stSidebar"] .stButton > button {
     background: transparent !important;
     border: 1px solid transparent !important;
-    color: rgba(255,255,255,0.4) !important;
-    border-radius: 7px !important;
-    font-family: 'Syne', sans-serif !important;
-    font-size: 12px !important; font-weight: 500 !important;
-    padding: 8px 12px !important; width: 100% !important;
-    text-align: left !important; margin-bottom: 1px !important;
-    transition: all 0.15s !important;
+    color: rgba(255,255,255,0.38) !important;
+    border-radius: 8px !important;
+    font-family: 'DM Mono', monospace !important;
+    font-size: 11px !important; font-weight: 400 !important;
+    letter-spacing: 0.02em !important;
+    padding: 9px 10px 9px 10px !important; width: 100% !important;
+    text-align: left !important; margin-bottom: 2px !important;
+    transition: all 0.12s ease !important;
     height: auto !important; min-height: unset !important; max-height: unset !important;
     justify-content: flex-start !important;
 }
 [data-testid="stSidebar"] .stButton > button:hover {
-    background: rgba(249,115,22,0.07) !important;
-    border-color: rgba(249,115,22,0.12) !important;
-    color: #f97316 !important;
+    background: rgba(249,115,22,0.06) !important;
+    border-color: rgba(249,115,22,0.15) !important;
+    color: rgba(255,255,255,0.75) !important;
+    padding-left: 13px !important;
+}
+
+/* Chat history items */
+.sb-chat-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px; border-radius: 7px;
+    border: 1px solid transparent;
+    transition: all 0.12s;
+}
+.sb-chat-item:hover {
+    background: rgba(255,255,255,0.03);
+    border-color: rgba(255,255,255,0.06);
+}
+.sb-no-chats {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    color: rgba(255,255,255,0.1); padding: 6px 10px;
+    text-align: center; letter-spacing: 0.06em;
 }
 
 /* ── GEAR SPIN ── */
