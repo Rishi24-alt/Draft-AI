@@ -2570,12 +2570,16 @@ elif st.session_state.active_tab == "standards":
                     unsafe_allow_html=True,
                 )
             with fc2:
+                _has_pairing = addin_ok or bool(pairing_code or _effective_pairing_code())
                 run_3d = st.button(
                     "⚡ Analyze via SW",
                     type="primary",
                     use_container_width=True,
                     key="run_3d_unified",
+                    disabled=not _has_pairing,
                 )
+            if not _has_pairing:
+                st.caption("⚠️ Open SolidWorks with Draft AI add-in — button activates automatically.")
 
             if run_3d:
                 routing_token = pairing_code or _effective_pairing_code()
@@ -3036,26 +3040,23 @@ elif st.session_state.active_tab == "cad3d":
             "⚡  Generate 2D Views via SolidWorks",
             use_container_width=True,
             key="cad_gen_btn",
+            disabled=not addin_ok and not (pairing_code or _effective_pairing_code()),
         ):
             routing_token = pairing_code or _effective_pairing_code()
-            if not addin_ok and not routing_token:
-                st.warning(
-                    "⚠️ No paired SolidWorks machine found. "
-                    "Open SolidWorks with Draft AI add-in on YOUR PC, "
-                    "then use the Auto-connect link above to pair your browser."
-                )
-            else:
-                with st.spinner("SolidWorks is processing your file... this may take up to 60 seconds"):
-                    try:
-                        result = prepare_and_export(
-                            cad_file.read(),
-                            cad_file.name,
-                            user_token=routing_token,
-                        )
-                        st.session_state["cad_result"] = result
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+            with st.spinner("SolidWorks is processing your file... this may take up to 60 seconds"):
+                try:
+                    result = prepare_and_export(
+                        cad_file.read(),
+                        cad_file.name,
+                        user_token=routing_token,
+                    )
+                    st.session_state["cad_result"] = result
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        if not addin_ok and not (pairing_code or _effective_pairing_code()):
+            st.caption("⚠️ Open SolidWorks with Draft AI add-in on your PC — the button will activate automatically.")
 
     # ── Results ──
     if "cad_result" in st.session_state and st.session_state["cad_result"]:
