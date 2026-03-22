@@ -101,6 +101,7 @@ if not PROXY_URL and not OPENAI_API_KEY:
     PROXY_URL = DEFAULT_PROXY_URL
 
 if openai:
+    _direct_client = openai.OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
     if PROXY_URL:
         client = openai.OpenAI(
             api_key=OPENAI_API_KEY or "draft-ai-proxy",
@@ -111,6 +112,7 @@ if openai:
     else:
         client = None
 else:
+    _direct_client = None
     client = None
 
 
@@ -125,6 +127,28 @@ def _require_openai():
 def _require_reportlab():
     if SimpleDocTemplate is None:
         raise RuntimeError("PDF generation dependency is unavailable. Install 'reportlab' and redeploy.")
+
+
+def _is_proxy_json_error(exc: Exception) -> bool:
+    """Detect common JSON parse errors from proxy non-JSON responses."""
+    msg = str(exc or "")
+    markers = (
+        "Expecting value: line 1 column 1",
+        "JSONDecodeError",
+        "Extra data: line 1",
+    )
+    return any(m in msg for m in markers)
+
+
+def _chat_completion(req: dict):
+    """Run chat completion with proxy->direct fallback when proxy returns bad JSON."""
+    _require_openai()
+    try:
+        return client.chat.completions.create(**req)
+    except Exception as exc:
+        if PROXY_URL and _direct_client is not None and _is_proxy_json_error(exc):
+            return _direct_client.chat.completions.create(**req)
+        raise
 
 
 def _extract_message_text(message) -> str:
@@ -336,7 +360,6 @@ def _call_vision_api(
     image_file, system_prompt, user_message, max_tokens=1400, response_format=None
 ):
     """Internal helper — single place where we call the API. No debug prints."""
-    _require_openai()
     base64_image = base64.b64encode(image_file.read()).decode("utf-8")
     req = dict(
         model="gpt-4o",
@@ -357,7 +380,7 @@ def _call_vision_api(
     )
     if response_format is not None:
         req["response_format"] = response_format
-    response = client.chat.completions.create(**req)
+    response = _chat_completion(req)
     return _extract_message_text(response.choices[0].message)
 
 
@@ -368,7 +391,6 @@ def _call_vision_api_multi(
     Send multiple images in a single API call.
     image_bytes_list: list of (label, bytes) tuples e.g. [("front", b"..."), ("top", b"...")]
     """
-    _require_openai()
     content = []
     for label, img_bytes in image_bytes_list:
         b64 = base64.b64encode(img_bytes).decode("utf-8")
@@ -389,13 +411,12 @@ def _call_vision_api_multi(
     )
     if response_format is not None:
         req["response_format"] = response_format
-    response = client.chat.completions.create(**req)
+    response = _chat_completion(req)
     return _extract_message_text(response.choices[0].message)
 
 
 def _call_vision_api_with_history(image_file, system_prompt, question, chat_history, max_tokens=1400):
     """Vision API call with conversation history."""
-    _require_openai()
     base64_image = base64.b64encode(image_file.read()).decode("utf-8")
     messages = [{"role": "system", "content": system_prompt}]
     for msg in chat_history:
@@ -410,11 +431,8 @@ def _call_vision_api_with_history(image_file, system_prompt, question, chat_hist
             {"type": "text", "text": question}
         ]
     })
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=messages,
-        max_tokens=max_tokens
-    )
+    req = dict(model="gpt-4o", messages=messages, max_tokens=max_tokens)
+    response = _chat_completion(req)
     return _extract_message_text(response.choices[0].message)
 
 
@@ -776,7 +794,7 @@ def compare_revisions(image_file_a, image_file_b):
     b64_a = base64.b64encode(image_file_a.read()).decode("utf-8")
     b64_b = base64.b64encode(image_file_b.read()).decode("utf-8")
 
-    response = client.chat.completions.create(
+    req = dict(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": REVISION_COMPARISON_PROMPT},
@@ -793,7 +811,8 @@ def compare_revisions(image_file_a, image_file_b):
         ],
         max_tokens=2000
     )
-    return response.choices[0].message.content
+    response = _chat_completion(req)
+    return _extract_message_text(response.choices[0].message)
 
 
 
