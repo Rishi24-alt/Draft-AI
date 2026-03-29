@@ -17,5 +17,6 @@ else:
         method="POST"
     )
 
-    urllib.request.urlopen(req)
+    with urllib.request.urlopen(req, timeout=10) as response:
+        response.read()
     print("API key saved!")
