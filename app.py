@@ -1133,10 +1133,14 @@ html, body {
 }
 
 /* ── LAYOUT ── */
+:root {
+    --app-shell-max-width: min(1420px, calc(100vw - 312px));
+}
 .block-container {
-    max-width: 980px !important;
+    width: min(100%, var(--app-shell-max-width)) !important;
+    max-width: var(--app-shell-max-width) !important;
     margin: 0 auto !important;
-    padding: 0 16px 170px 16px !important;
+    padding: 0 24px 170px 24px !important;
     min-height: calc(100vh - 24px) !important;
     height: auto !important;
     max-height: unset !important;
@@ -1543,7 +1547,29 @@ div[data-testid="stHorizontalBlock"] div[data-testid="column"] > div > div > div
     padding-top: 0; z-index: 100;
     pointer-events: none;
 }
-.sticky-inner { max-width: 980px; margin: 0 auto; padding: 0 20px 0; pointer-events: auto; }
+.sticky-inner {
+    width: min(100%, var(--app-shell-max-width));
+    max-width: var(--app-shell-max-width);
+    margin: 0 auto;
+    padding: 0 24px 0;
+    pointer-events: auto;
+}
+
+@media (max-width: 1200px) {
+    :root {
+        --app-shell-max-width: min(100vw, 100%);
+    }
+    .block-container {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 0 16px 170px 16px !important;
+    }
+    .sticky-inner {
+        width: 100%;
+        max-width: 100%;
+        padding: 0 16px 0;
+    }
+}
 
 .stTextArea textarea {
     background: rgba(255,255,255,0.04) !important;
