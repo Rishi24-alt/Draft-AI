@@ -2,8 +2,11 @@ import base64
 import os
 import io
 import json
+import math
 import re
-from datetime import datetime
+import zipfile
+from datetime import datetime, timezone
+from xml.sax.saxutils import escape as xml_escape
 
 try:
     import openai
@@ -12,14 +15,7 @@ except ImportError:
 
 # ── Read secrets from Streamlit if available, else fall back to env ──
 def _get_secret(key: str, default: str = "") -> str:
-    """Read from Streamlit secrets first, then os.getenv."""
-    try:
-        import streamlit as st
-        val = st.secrets.get(key, "")
-        if val:
-            return val
-    except Exception:
-        pass
+    """Read from os.getenv only — avoids triggering st.secrets before set_page_config."""
     return os.getenv(key, default)
 
 try:
@@ -220,6 +216,306 @@ def _parse_json_response(raw_text: str, context: str):
             f"{context}: AI returned non-JSON output. Preview: {preview}"
         ) from e
 
+
+def _read_file_bytes(file_obj, context: str) -> bytes:
+    """
+    Read all bytes from the start of a file-like object.
+    Rewinding on every call prevents empty-image requests when the same object
+    has already been consumed elsewhere in the UI flow.
+    """
+    if file_obj is None:
+        raise ValueError(f"{context}: no file provided.")
+
+    if hasattr(file_obj, "seek"):
+        file_obj.seek(0)
+
+    raw = file_obj.read()
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8")
+    if not isinstance(raw, (bytes, bytearray)):
+        raise ValueError(f"{context}: expected bytes from file upload, got {type(raw).__name__}.")
+
+    data = bytes(raw)
+    if not data:
+        raise ValueError(f"{context}: uploaded file is empty.")
+    return data
+
+
+def _detect_image_mime_type(image_bytes: bytes, file_name: str = "") -> str:
+    """Detect the correct MIME type from magic bytes, with filename fallback."""
+    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if image_bytes.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if image_bytes.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if image_bytes.startswith(b"BM"):
+        return "image/bmp"
+    if image_bytes.startswith((b"II*\x00", b"MM\x00*")):
+        return "image/tiff"
+    if image_bytes.startswith(b"RIFF") and image_bytes[8:12] == b"WEBP":
+        return "image/webp"
+
+    suffix = os.path.splitext((file_name or "").strip().lower())[1]
+    extension_map = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+        ".tif": "image/tiff",
+        ".tiff": "image/tiff",
+        ".webp": "image/webp",
+    }
+    mime_type = extension_map.get(suffix)
+    if mime_type:
+        return mime_type
+
+    raise ValueError("Unsupported image format: could not determine MIME type.")
+
+
+def _image_data_url_from_bytes(image_bytes: bytes, file_name: str = "") -> str:
+    mime_type = _detect_image_mime_type(image_bytes, file_name=file_name)
+    return f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('utf-8')}"
+
+
+def _coerce_bounded_int(value, *, default: int = 0, minimum: int = 0, maximum: int = 100) -> int:
+    """Coerce numeric-like values into a safe bounded integer."""
+    try:
+        if isinstance(value, bool):
+            numeric = int(value)
+        elif isinstance(value, (int, float)):
+            numeric = float(value)
+        else:
+            numeric = float(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+    if not math.isfinite(numeric):
+        return default
+
+    bounded = int(round(numeric))
+    return max(minimum, min(maximum, bounded))
+
+
+def _coerce_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in {"true", "1", "yes", "y"}:
+            return True
+        if token in {"false", "0", "no", "n"}:
+            return False
+    return bool(value)
+
+
+def _coerce_text(value, default: str = "—") -> str:
+    if value is None:
+        return default
+    text = str(value).strip()
+    return text or default
+
+
+def _coerce_string_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        items = value
+    else:
+        items = [value]
+    cleaned = []
+    for item in items:
+        text = str(item).strip()
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def _sanitize_batch_analysis_result(payload: dict, filename: str = "drawing") -> dict:
+    """Normalize model JSON so downstream UI/export code sees stable types."""
+    data = payload if isinstance(payload, dict) else {}
+    return {
+        "drawing_name": _coerce_text(data.get("drawing_name"), filename),
+        "part_number": _coerce_text(data.get("part_number")),
+        "drawing_type": _coerce_text(data.get("drawing_type"), "Unknown"),
+        "status": _coerce_text(data.get("status"), "Analysis Failed"),
+        "manufacturability_score": _coerce_bounded_int(data.get("manufacturability_score"), default=0),
+        "estimated_cost_usd": _coerce_text(data.get("estimated_cost_usd")),
+        "complexity": _coerce_text(data.get("complexity")),
+        "critical_issues": _coerce_string_list(data.get("critical_issues")),
+        "warnings": _coerce_string_list(data.get("warnings")),
+        "missing_dimensions": _coerce_bool(data.get("missing_dimensions")),
+        "has_gdt": _coerce_bool(data.get("has_gdt")),
+        "material_specified": _coerce_bool(data.get("material_specified")),
+        "tolerance_risk": _coerce_text(data.get("tolerance_risk")),
+        "recommended_process": _coerce_text(data.get("recommended_process")),
+        "summary": _coerce_text(data.get("summary"), "Analysis could not be completed for this drawing."),
+    }
+
+
+def _sanitize_standards_result(payload: dict) -> dict:
+    data = payload if isinstance(payload, dict) else {}
+
+    verdict = _coerce_text(data.get("verdict"), "FAIL").upper()
+    if verdict not in {"PASS", "CONDITIONAL PASS", "FAIL"}:
+        verdict = "FAIL"
+
+    checks = []
+    for raw_check in data.get("checks", []) if isinstance(data.get("checks"), list) else []:
+        if not isinstance(raw_check, dict):
+            continue
+        status = _coerce_text(raw_check.get("status"), "FAIL").upper()
+        if status not in {"PASS", "WARNING", "FAIL"}:
+            status = "FAIL"
+        checks.append(
+            {
+                "category": _coerce_text(raw_check.get("category")),
+                "status": status,
+                "score": _coerce_bounded_int(raw_check.get("score"), default=0),
+                "findings": _coerce_string_list(raw_check.get("findings")),
+                "violations": _coerce_string_list(raw_check.get("violations")),
+            }
+        )
+
+    return {
+        "overall_score": _coerce_bounded_int(data.get("overall_score"), default=0),
+        "standard_detected": _coerce_text(data.get("standard_detected"), "Unknown"),
+        "verdict": verdict,
+        "checks": checks,
+        "critical_violations": _coerce_string_list(data.get("critical_violations")),
+        "warnings": _coerce_string_list(data.get("warnings")),
+        "recommendations": _coerce_string_list(data.get("recommendations")),
+        "summary": _coerce_text(data.get("summary")),
+    }
+
+
+def _excel_column_name(index: int) -> str:
+    name = ""
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
+
+
+def _build_basic_xlsx(sheets: list[tuple[str, list[list]]]) -> io.BytesIO:
+    """
+    Create a minimal XLSX workbook using only the standard library.
+    This is the accuracy fallback when openpyxl is unavailable in runtime.
+    """
+    workbook_sheets = []
+    workbook_rels = []
+    content_overrides = []
+    worksheet_xml_by_path = {}
+
+    for sheet_index, (sheet_name, rows) in enumerate(sheets, 1):
+        safe_sheet_name = _coerce_text(sheet_name, f"Sheet{sheet_index}")[:31]
+        workbook_sheets.append(
+            f'<sheet name="{xml_escape(safe_sheet_name)}" sheetId="{sheet_index}" r:id="rId{sheet_index}"/>'
+        )
+        workbook_rels.append(
+            f'<Relationship Id="rId{sheet_index}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            f'Target="worksheets/sheet{sheet_index}.xml"/>'
+        )
+        content_overrides.append(
+            f'<Override PartName="/xl/worksheets/sheet{sheet_index}.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        )
+
+        row_xml = []
+        for row_index, row in enumerate(rows or [[]], 1):
+            cell_xml = []
+            for col_index, value in enumerate(row, 1):
+                if value is None:
+                    continue
+                cell_ref = f"{_excel_column_name(col_index)}{row_index}"
+                if isinstance(value, bool):
+                    cell_xml.append(f'<c r="{cell_ref}" t="b"><v>{1 if value else 0}</v></c>')
+                elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                    cell_xml.append(f'<c r="{cell_ref}"><v>{value}</v></c>')
+                else:
+                    text = xml_escape(str(value)).replace("\r\n", "\n").replace("\r", "\n")
+                    cell_xml.append(
+                        f'<c r="{cell_ref}" t="inlineStr"><is><t xml:space="preserve">{text}</t></is></c>'
+                    )
+            row_xml.append(f'<row r="{row_index}">{"".join(cell_xml)}</row>')
+
+        worksheet_xml_by_path[f"xl/worksheets/sheet{sheet_index}.xml"] = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            f'<sheetData>{"".join(row_xml)}</sheetData>'
+            '</worksheet>'
+        )
+
+    created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as workbook:
+        workbook.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+            '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
+            f'{"".join(content_overrides)}'
+            "</Types>",
+        )
+        workbook.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+            '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
+            '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'
+            "</Relationships>",
+        )
+        workbook.writestr(
+            "docProps/core.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+            'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+            'xmlns:dcterms="http://purl.org/dc/terms/" '
+            'xmlns:dcmitype="http://purl.org/dc/dcmitype/" '
+            'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+            '<dc:creator>Draft AI</dc:creator>'
+            '<cp:lastModifiedBy>Draft AI</cp:lastModifiedBy>'
+            f'<dcterms:created xsi:type="dcterms:W3CDTF">{created}</dcterms:created>'
+            f'<dcterms:modified xsi:type="dcterms:W3CDTF">{created}</dcterms:modified>'
+            "</cp:coreProperties>",
+        )
+        workbook.writestr(
+            "docProps/app.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" '
+            'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
+            '<Application>Draft AI</Application>'
+            '</Properties>',
+        )
+        workbook.writestr(
+            "xl/workbook.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            f'<sheets>{"".join(workbook_sheets)}</sheets>'
+            '</workbook>',
+        )
+        workbook.writestr(
+            "xl/_rels/workbook.xml.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            f'{"".join(workbook_rels)}'
+            '</Relationships>',
+        )
+        for path, xml_payload in worksheet_xml_by_path.items():
+            workbook.writestr(path, xml_payload)
+
+    buffer.seek(0)
+    return buffer
+
 # ── BASE FORMATTING RULES (shared by all prompts) ──
 FORMAT_RULES = """
 STRICT FORMATTING RULES — follow these exactly, no exceptions:
@@ -360,7 +656,8 @@ def _call_vision_api(
     image_file, system_prompt, user_message, max_tokens=1400, response_format=None
 ):
     """Internal helper — single place where we call the API. No debug prints."""
-    base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+    image_bytes = _read_file_bytes(image_file, "Vision API image")
+    data_url = _image_data_url_from_bytes(image_bytes, getattr(image_file, "name", ""))
     req = dict(
         model="gpt-4o",
         temperature=0,
@@ -372,7 +669,7 @@ def _call_vision_api(
                 "content": [
                     {
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}", "detail": "high"}
+                        "image_url": {"url": data_url, "detail": "high"}
                     },
                     {"type": "text", "text": user_message}
                 ]
@@ -395,11 +692,17 @@ def _call_vision_api_multi(
     """
     content = []
     for label, img_bytes in image_bytes_list:
-        b64 = base64.b64encode(img_bytes).decode("utf-8")
+        if not isinstance(img_bytes, (bytes, bytearray)):
+            raise ValueError(f"Invalid bytes supplied for {label} view.")
+        if not img_bytes:
+            raise ValueError(f"{label} view image is empty.")
         content.append({"type": "text", "text": f"[{label.upper()} VIEW]"})
         content.append({
             "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{b64}", "detail": "high"}
+            "image_url": {
+                "url": _image_data_url_from_bytes(bytes(img_bytes), f"{label}.png"),
+                "detail": "high",
+            }
         })
     content.append({"type": "text", "text": user_message})
 
@@ -421,16 +724,17 @@ def _call_vision_api_multi(
 
 def _call_vision_api_with_history(image_file, system_prompt, question, chat_history, max_tokens=1400):
     """Vision API call with conversation history."""
-    base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+    image_bytes = _read_file_bytes(image_file, "Vision API image with history")
+    data_url = _image_data_url_from_bytes(image_bytes, getattr(image_file, "name", ""))
     messages = [{"role": "system", "content": system_prompt}]
-    for msg in chat_history:
+    for msg in (chat_history or []):
         messages.append(msg)
     messages.append({
         "role": "user",
         "content": [
             {
                 "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}", "detail": "high"}
+                "image_url": {"url": data_url, "detail": "high"}
             },
             {"type": "text", "text": question}
         ]
@@ -442,9 +746,14 @@ def _call_vision_api_with_history(image_file, system_prompt, question, chat_hist
 
 # ── PUBLIC FUNCTIONS ──
 
-def analyze_drawing(image_file, question, chat_history=[]):
+def analyze_drawing(image_file, question, chat_history=None):
     """General Q&A analysis with chat history."""
-    return _call_vision_api_with_history(image_file, SYSTEM_PROMPT, question, chat_history)
+    return _call_vision_api_with_history(
+        image_file,
+        SYSTEM_PROMPT,
+        question,
+        list(chat_history) if chat_history else [],
+    )
 
 
 def analyze_gdt(image_file):
@@ -800,8 +1109,10 @@ RECOMMENDATION: APPROVE / NEEDS REVIEW / REJECT
 
 def compare_revisions(image_file_a, image_file_b):
     """Compare two drawing revisions side-by-side and list all changes."""
-    b64_a = base64.b64encode(image_file_a.read()).decode("utf-8")
-    b64_b = base64.b64encode(image_file_b.read()).decode("utf-8")
+    img_a = _read_file_bytes(image_file_a, "Revision A image")
+    img_b = _read_file_bytes(image_file_b, "Revision B image")
+    data_url_a = _image_data_url_from_bytes(img_a, getattr(image_file_a, "name", "rev_a"))
+    data_url_b = _image_data_url_from_bytes(img_b, getattr(image_file_b, "name", "rev_b"))
 
     req = dict(
         model="gpt-4o",
@@ -813,9 +1124,9 @@ def compare_revisions(image_file_a, image_file_b):
                 "role": "user",
                 "content": [
                     {"type": "text",      "text": "REVISION A — the older drawing:"},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_a}", "detail": "high"}},
+                    {"type": "image_url", "image_url": {"url": data_url_a, "detail": "high"}},
                     {"type": "text",      "text": "REVISION B — the newer drawing:"},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_b}", "detail": "high"}},
+                    {"type": "image_url", "image_url": {"url": data_url_b, "detail": "high"}},
                     {"type": "text",      "text": "Compare these two drawing revisions carefully and report every change you find."},
                 ],
             }
@@ -867,9 +1178,10 @@ def batch_analyze_drawing(image_file, filename="drawing"):
             max_tokens=800,
             response_format={"type": "json_object"},
         )
-        return _parse_json_response(result, f"Batch analysis ({filename})")
+        parsed = _parse_json_response(result, f"Batch analysis ({filename})")
+        return _sanitize_batch_analysis_result(parsed, filename)
     except Exception as e:
-        return {
+        return _sanitize_batch_analysis_result({
             "drawing_name": filename,
             "part_number": "—",
             "drawing_type": "Unknown",
@@ -885,18 +1197,69 @@ def batch_analyze_drawing(image_file, filename="drawing"):
             "tolerance_risk": "—",
             "recommended_process": "—",
             "summary": "Analysis could not be completed for this drawing."
-        }
+        }, filename)
 
 
 def generate_batch_excel(results):
     """Generate an Excel report from batch analysis results."""
     import io
+    results = [_sanitize_batch_analysis_result(r, f"drawing_{idx}") for idx, r in enumerate(results or [], 1)]
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
     except ImportError:
-        return None
+        summary_rows = [
+            [
+                "#",
+                "Drawing Name",
+                "Part Number",
+                "Type",
+                "Status",
+                "Mfg. Score",
+                "Est. Cost (USD)",
+                "Complexity",
+                "Tolerance Risk",
+                "Missing Dims",
+                "Has GD&T",
+                "Material Specified",
+                "Process",
+                "Summary",
+            ]
+        ]
+        for idx, result in enumerate(results, 1):
+            summary_rows.append(
+                [
+                    idx,
+                    result["drawing_name"],
+                    result["part_number"],
+                    result["drawing_type"],
+                    result["status"],
+                    result["manufacturability_score"],
+                    result["estimated_cost_usd"],
+                    result["complexity"],
+                    result["tolerance_risk"],
+                    "Yes" if result["missing_dimensions"] else "No",
+                    "Yes" if result["has_gdt"] else "No",
+                    "Yes" if result["material_specified"] else "No",
+                    result["recommended_process"],
+                    result["summary"],
+                ]
+            )
+
+        issues_rows = [["#", "Drawing Name", "Severity", "Issue / Warning"]]
+        for idx, result in enumerate(results, 1):
+            for issue in result["critical_issues"]:
+                issues_rows.append([idx, result["drawing_name"], "Critical", issue])
+            for warning in result["warnings"]:
+                issues_rows.append([idx, result["drawing_name"], "Warning", warning])
+
+        return _build_basic_xlsx(
+            [
+                ("Batch Analysis", summary_rows),
+                ("Issues", issues_rows),
+            ]
+        )
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -1044,6 +1407,7 @@ def generate_batch_excel(results):
 def generate_batch_pdf(results):
     """Generate a PDF summary report from batch analysis results."""
     _require_reportlab()
+    results = [_sanitize_batch_analysis_result(r, f"drawing_{idx}") for idx, r in enumerate(results or [], 1)]
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
@@ -1319,7 +1683,42 @@ def generate_bom_excel(bom_data):
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
     except ImportError:
-        return None
+        meta_rows = [
+            ["Assembly", bom_data.get("assembly_name", "Not specified")],
+            ["Drawing No.", bom_data.get("drawing_number", "Not specified")],
+            ["Revision", bom_data.get("revision", "Not specified")],
+            ["Date", bom_data.get("date", "Not specified")],
+            ["Generated", datetime.now().strftime("%d %B %Y, %I:%M %p")],
+            [],
+            ["ITEM", "PART NUMBER", "DESCRIPTION", "QTY", "MATERIAL", "STANDARD/SPEC", "FINISH", "NOTES"],
+        ]
+        item_rows = []
+        for idx, item in enumerate(bom_data.get("items", []), 1):
+            item_rows.append(
+                [
+                    item.get("item_no", idx),
+                    item.get("part_number", "Not specified"),
+                    item.get("description", "Not specified"),
+                    item.get("quantity", 1),
+                    item.get("material", "Not specified"),
+                    item.get("standard", "Not specified"),
+                    item.get("finish", "Not specified"),
+                    item.get("notes", ""),
+                ]
+            )
+        total_qty = sum(
+            value for value in (
+                item.get("quantity", 0) if isinstance(item.get("quantity", 0), int) else 0
+                for item in bom_data.get("items", [])
+            )
+        )
+        footer_rows = [
+            [],
+            [f"TOTAL ITEMS: {len(bom_data.get('items', []))}", "", "", total_qty],
+            [],
+            ["Generated by Draft AI | Powered by GPT-4o Vision"],
+        ]
+        return _build_basic_xlsx([("Bill of Materials", meta_rows + item_rows + footer_rows)])
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -1410,6 +1809,11 @@ def generate_bom_excel(bom_data):
     ws.merge_cells(f"A{foot_row}:H{foot_row}")
     ws.cell(row=foot_row, column=1, value="Generated by Draft AI  |  Powered by GPT-4o Vision").font = Font(name="Arial", size=7, color="AAAAAA", italic=True)
     ws.cell(row=foot_row, column=1).alignment = Alignment(horizontal="center")
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
 
 
 
@@ -1573,29 +1977,34 @@ def check_drawing_standards(image_file):
         max_tokens=2200,
         response_format={"type": "json_object"},
     )
-    return _parse_json_response(result, "Standards check")
+    parsed = _parse_json_response(result, "Standards check")
+    return _sanitize_standards_result(parsed)
 
 
 def check_drawing_standards_multiview(views_dict: dict):
     """
-    Standards compliance check using OpenAI GPT-4o vision.
-    Uses the front view as primary; falls back to any available view.
+    Standards compliance check using all available views in one request so
+    projection angle, section callouts, and cross-view consistency are judged
+    on the full drawing set rather than a single view.
     """
-    # Use front view — most informative for standards checking
-    front_png = views_dict.get("front")
-    if not front_png:
-        # Fall back to any available view
-        for vkey in ["top", "side", "isometric"]:
-            front_png = views_dict.get(vkey)
-            if front_png:
-                break
+    ordered_views = []
+    for view_name in ["front", "top", "side", "isometric"]:
+        view_bytes = views_dict.get(view_name)
+        if isinstance(view_bytes, (bytes, bytearray)) and view_bytes:
+            ordered_views.append((view_name, bytes(view_bytes)))
 
-    if not front_png:
+    if not ordered_views:
         raise ValueError("No views available for standards check")
 
-    buf = io.BytesIO(front_png)
-    buf.name = "front.png"
-    return check_drawing_standards(buf)
+    result = _call_vision_api_multi(
+        ordered_views,
+        STANDARDS_CHECKER_PROMPT,
+        "Perform a complete drawing standards compliance check across all provided views. Cross-check projection angle, section callouts, dimensioning consistency, and missing-view issues. Return structured JSON only.",
+        max_tokens=2600,
+        response_format={"type": "json_object"},
+    )
+    parsed = _parse_json_response(result, "Standards check (multi-view)")
+    return _sanitize_standards_result(parsed)
 
 
 # ══════════════════════════════════════════════════════════════════
