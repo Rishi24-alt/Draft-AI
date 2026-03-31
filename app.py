@@ -3102,7 +3102,7 @@ elif st.session_state.active_tab == "cad3d":
     <strong>2.</strong> Extract the ZIP to any permanent folder on your PC<br>
     <strong>3.</strong> Right-click <code>install.bat</code> → <strong>Run as Administrator</strong><br>
     <strong>4.</strong> Open SolidWorks → <strong>Tools → Add-Ins</strong> → check <strong>Draft AI</strong> → OK<br>
-    <strong>5.</strong> Come back to <b>this website</b> (draftaii.streamlit.app) — it will show ⚡ Connected
+    <strong>5.</strong> Come back to <b>this website</b> — it will show ⚡ Connected
   </div>
   <div style="margin-top:12px;padding:10px 14px;background:rgba(249,115,22,0.06);border-radius:8px;font-family:'DM Mono',monospace;font-size:11px;color:rgba(255,255,255,0.5);line-height:1.8;">
     💡 <span style="color:#f97316;">Tip:</span><br>
