@@ -1,5 +1,6 @@
 [browser]
 gatherUsageStats = false
+favicon = "/favicon.png"
 
 [client]
 showErrorDetails = true
