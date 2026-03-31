@@ -1112,11 +1112,15 @@ APP_FAVICON = APP_DIR / "favicon.png"
 def _load_favicon_image():
     if APP_FAVICON.exists():
         try:
-            return Image.open(APP_FAVICON).convert("RGBA")
+            return Image.open(APP_FAVICON).convert("RGB").resize((32, 32), Image.LANCZOS)
         except Exception:
             pass
     try:
-        return Image.open(io.BytesIO(base64.b64decode(FALLBACK_FAVICON_B64))).convert("RGBA")
+        return (
+            Image.open(io.BytesIO(base64.b64decode(FALLBACK_FAVICON_B64)))
+            .convert("RGB")
+            .resize((32, 32), Image.LANCZOS)
+        )
     except Exception:
         return None
 
