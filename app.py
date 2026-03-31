@@ -6,6 +6,7 @@
 
 import streamlit as st
 import streamlit.components.v1 as components
+from PIL import Image
 from utils import (
     analyze_drawing,
     generate_pdf,
@@ -77,7 +78,10 @@ def _inject_browser_branding():
     if not APP_FAVICON.exists():
         return
 
-    favicon_b64 = base64.b64encode(APP_FAVICON.read_bytes()).decode("ascii")
+    favicon_image = Image.open(APP_FAVICON).convert("RGBA").resize((32, 32))
+    favicon_buffer = io.BytesIO()
+    favicon_image.save(favicon_buffer, format="PNG")
+    favicon_b64 = base64.b64encode(favicon_buffer.getvalue()).decode("ascii")
     components.html(
         f"""
         <script>
@@ -1099,10 +1103,11 @@ def render_drawing_preview(image_bytes, key_suffix):
 
 APP_DIR = Path(__file__).resolve().parent
 APP_FAVICON = APP_DIR / "favicon.png"
+APP_FAVICON_IMAGE = Image.open(APP_FAVICON).convert("RGBA") if APP_FAVICON.exists() else None
 
 st.set_page_config(
     page_title="Draft AI",
-    page_icon=str(APP_FAVICON) if APP_FAVICON.exists() else None,
+    page_icon=APP_FAVICON_IMAGE,
     layout="wide",
     initial_sidebar_state="expanded",
 )
