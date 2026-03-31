@@ -115,7 +115,38 @@ def _render_browser_auto_pair_probe():
     3) If still missing, try localhost /ping and inject addin_id_cloud.
 
     This keeps pairing nearly zero-touch after first install.
+
+    NOTE: The localhost fetch is skipped on HTTPS deployments to avoid
+    mixed-content browser warnings ("Not secure"). Pairing still works
+    via the ?pair= query param and localStorage cache.
     """
+    public_url = os.getenv("PUBLIC_APP_URL", "").strip()
+    if public_url.startswith("https://"):
+        # On Railway (HTTPS) skip the http://localhost probe entirely.
+        # The browser auto-pair still works via localStorage + ?pair= URL.
+        components.html(
+            """
+<script>
+(async function() {
+  const storeKey = "draftai_pair_code_v1";
+  const u = new URL(window.top.location.href);
+  const qp = (u.searchParams.get("pair") || "").trim();
+  if (qp) {
+    try { localStorage.setItem(storeKey, qp); } catch (_) {}
+    return;
+  }
+  let cached = "";
+  try { cached = (localStorage.getItem(storeKey) || "").trim(); } catch (_) {}
+  if (cached) {
+    u.searchParams.set("pair", cached);
+    window.top.location.replace(u.toString());
+  }
+})();
+</script>
+""",
+            height=0,
+        )
+        return
     components.html(
         """
 <script>
@@ -3099,7 +3130,7 @@ elif st.session_state.active_tab == "cad3d":
     <strong>2.</strong> Extract the ZIP to any permanent folder on your PC<br>
     <strong>3.</strong> Right-click <code>install.bat</code> → <strong>Run as Administrator</strong><br>
     <strong>4.</strong> Open SolidWorks → <strong>Tools → Add-Ins</strong> → check <strong>Draft AI</strong> → OK<br>
-    <strong>5.</strong> Come back to <b>this website</b> (draftaii.streamlit.app) — it will show ⚡ Connected
+    <strong>5.</strong> Come back to <b>this website</b> (app.draftai.cloud) — it will show ⚡ Connected
   </div>
   <div style="margin-top:12px;padding:10px 14px;background:rgba(249,115,22,0.06);border-radius:8px;font-family:'DM Mono',monospace;font-size:11px;color:rgba(255,255,255,0.5);line-height:1.8;">
     💡 <span style="color:#f97316;">Tip:</span><br>
