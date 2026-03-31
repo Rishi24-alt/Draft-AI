@@ -1067,9 +1067,12 @@ def render_drawing_preview(image_bytes, key_suffix):
 # PAGE CONFIG
 # ------------------------------------------------------------------
 
+APP_DIR = Path(__file__).resolve().parent
+APP_FAVICON = APP_DIR / "favicon.png"
+
 st.set_page_config(
     page_title="Draft AI",
-    page_icon="favicon.png",
+    page_icon=str(APP_FAVICON) if APP_FAVICON.exists() else None,
     layout="wide",
     initial_sidebar_state="expanded",
 )
