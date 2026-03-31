@@ -73,6 +73,36 @@ def _read_auth_intent_from_query() -> bool:
     return token in {"1", "true", "yes", "google", "signin", "login"}
 
 
+def _inject_browser_branding():
+    if not APP_FAVICON.exists():
+        return
+
+    favicon_b64 = base64.b64encode(APP_FAVICON.read_bytes()).decode("ascii")
+    components.html(
+        f"""
+        <script>
+          const doc = window.parent.document;
+          const href = "data:image/png;base64,{favicon_b64}";
+          doc.title = "Draft AI";
+          doc.querySelectorAll("link[rel='icon'], link[rel='shortcut icon'], link[rel='apple-touch-icon']").forEach((node) => node.remove());
+          [
+            ["icon", "image/png"],
+            ["shortcut icon", "image/png"],
+            ["apple-touch-icon", "image/png"],
+          ].forEach(([rel, type]) => {{
+            const link = doc.createElement("link");
+            link.rel = rel;
+            link.type = type;
+            link.href = href;
+            doc.head.appendChild(link);
+          }});
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
 def _sync_pair_code_to_query(pair_code: str):
     try:
         code = _normalize_pair_code(pair_code)
@@ -1076,6 +1106,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+_inject_browser_branding()
 
 
 # ------------------------------------------------------------------
