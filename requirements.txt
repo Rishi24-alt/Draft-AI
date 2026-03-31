@@ -7,7 +7,7 @@ requests==2.32.3
 pandas==2.2.3
 numpy==2.2.5
 httpx==0.28.1
-tenacity==9.1.0
+tenacity==9.1.4
 pdf2image==1.17.0
 svglib==1.5.1
 google-auth==2.40.1
