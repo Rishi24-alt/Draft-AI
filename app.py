@@ -3019,7 +3019,7 @@ elif st.session_state.active_tab == "standards":
     st.markdown(
         """
 <div style="background:linear-gradient(135deg,rgba(249,115,22,0.10) 0%,rgba(249,115,22,0.03) 100%);
-            border:1px solid rgba(249,115,22,0.22);border-radius:12px;padding:6px 20px;margin-bottom:14px;">
+            border:1px solid rgba(249,115,22,0.22);border-radius:12px;padding:16px 20px;margin-bottom:14px;">
     <div style="font-size:14px;font-weight:700;color:#fff;font-family:Syne,sans-serif;margin-bottom:6px;">
         Drawing Standards &amp; 3D Model Analysis
     </div>
@@ -3694,6 +3694,43 @@ font-size:10px;color:#22c55e;letter-spacing:0.06em;margin-bottom:16px;">
 # ------------------------------------------------------------------
 
 else:
+    has_analyze_results = bool(st.session_state.messages_display)
+    st.markdown(
+        f"""
+<style>
+.section-label {{
+    margin: 8px 0 4px !important;
+}}
+.chat-section-header {{
+    margin-top: 8px !important;
+    margin-bottom: 4px !important;
+}}
+.chat-empty {{
+    padding: 12px 20px 4px !important;
+}}
+.chat-empty-sub {{
+    margin-bottom: 16px !important;
+}}
+.sticky-wrap {{
+    position: static !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    margin-top: 10px !important;
+    pointer-events: auto !important;
+}}
+.sticky-inner {{
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+}}
+.block-container {{
+    padding-bottom: {24 if has_analyze_results else 12}px !important;
+}}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
 
     # -- File uploader --
     uploaded_file = st.file_uploader(
@@ -3756,9 +3793,41 @@ else:
                     img_bytes
                 ).decode("utf-8")
 
+    has_analyze_scroll_state = bool(
+        uploaded_file or has_analyze_results or st.session_state.show_revision_panel
+    )
+    if has_analyze_scroll_state:
+        st.markdown(
+            """<style>
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"] {
+    overflow-y: auto !important;
+}
+.sticky-wrap {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: max(12px, env(safe-area-inset-bottom)) !important;
+    margin-top: 0 !important;
+    pointer-events: none !important;
+}
+.sticky-inner {
+    width: min(100%, var(--app-shell-max-width)) !important;
+    max-width: var(--app-shell-max-width) !important;
+    margin: 0 auto !important;
+    padding: 0 24px 0 !important;
+    pointer-events: auto !important;
+}
+.block-container {
+    padding-bottom: 190px !important;
+}
+</style>""",
+            unsafe_allow_html=True,
+        )
+
     # -- Quick action buttons --
     st.markdown(
-        '<div class="section-label" style="margin-top:8px;">Quick Analysis</div>',
+        '<div class="section-label">Quick Analysis</div>',
         unsafe_allow_html=True,
     )
     c1, c2, c3, c4 = st.columns(4, gap="small")
@@ -3777,7 +3846,7 @@ else:
 
     # -- Advanced Features --
     st.markdown(
-        '<div class="section-label" style="margin-top:10px;">Advanced Analysis</div>',
+        '<div class="section-label">Advanced Analysis</div>',
         unsafe_allow_html=True,
     )
     a1, a2, a3, a4, a5 = st.columns(5, gap="small")
@@ -3838,49 +3907,6 @@ else:
         """<div class="chat-section-header">Conversation</div>""",
         unsafe_allow_html=True,
     )
-
-    # Enable scroll only when chat has messages — no visible scrollbar
-    if st.session_state.messages_display:
-        st.markdown(
-            """<style>
-html, body {
-    overflow-y: auto !important;
-    height: auto !important;
-}
-[data-testid="stMain"] {
-    overflow: visible !important;
-    height: auto !important;
-    max-height: unset !important;
-}
-.block-container {
-    height: auto !important;
-    max-height: unset !important;
-    overflow: visible !important;
-    padding-bottom: 220px !important;
-}
-</style>""",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            """<style>
-html, body,
-[data-testid="stAppViewContainer"],
-[data-testid="stMain"] {
-    overflow-y: auto !important;
-    height: auto !important;
-    max-height: unset !important;
-}
-.block-container {
-    height: auto !important;
-    min-height: unset !important;
-    max-height: unset !important;
-    overflow: visible !important;
-    padding-bottom: 170px !important;
-}
-</style>""",
-            unsafe_allow_html=True,
-        )
 
     # suggestion chip state
     chip_question = None
@@ -3947,24 +3973,13 @@ html, body,
                     )
 
     st.markdown(
-        '<div class="footer-txt" style="margin-top:20px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>',
+        f'<div class="footer-txt" style="margin-top:{8 if not has_analyze_results else 12}px;">Draft <span>AI</span> &nbsp;|&nbsp; Made with ♥ by Rishi</div>',
         unsafe_allow_html=True,
     )
 
     # -- Bottom input bar --
     st.markdown(
-        """
-<div class="sticky-wrap"><div class="sticky-inner">
-<script>
-(function() {
-    // Move sticky-wrap to body so position:fixed works correctly
-    var el = document.querySelector('.sticky-wrap');
-    if (el && el.parentElement !== document.body) {
-        document.body.appendChild(el);
-    }
-})();
-</script>
-""",
+        """<div class="sticky-wrap"><div class="sticky-inner">""",
         unsafe_allow_html=True,
     )
 
