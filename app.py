@@ -204,6 +204,41 @@ def _inject_corner_sidebar_toggle():
               hdr.style.setProperty('padding', '0', 'important');
               hdr.style.setProperty('margin', '0', 'important');
             }
+
+            // Collapse invisible component iframes and their wrappers
+            d.querySelectorAll('[data-testid="stMain"] [data-testid="stCustomComponentV1"], [data-testid="stMain"] .stHtml').forEach((el) => {
+              el.style.setProperty('height', '0', 'important');
+              el.style.setProperty('min-height', '0', 'important');
+              el.style.setProperty('overflow', 'hidden', 'important');
+              el.style.setProperty('margin', '0', 'important');
+              el.style.setProperty('padding', '0', 'important');
+              // Also collapse parent element-container
+              const parent = el.closest('[data-testid="element-container"]');
+              if (parent) {
+                parent.style.setProperty('height', '0', 'important');
+                parent.style.setProperty('min-height', '0', 'important');
+                parent.style.setProperty('overflow', 'hidden', 'important');
+                parent.style.setProperty('margin', '0', 'important');
+                parent.style.setProperty('padding', '0', 'important');
+              }
+            });
+
+            // Collapse any iframe with height=0 attribute
+            d.querySelectorAll('[data-testid="stMain"] iframe[height="0"]').forEach((el) => {
+              const wrapper = el.closest('[data-testid="element-container"]');
+              if (wrapper) {
+                wrapper.style.setProperty('height', '0', 'important');
+                wrapper.style.setProperty('min-height', '0', 'important');
+                wrapper.style.setProperty('overflow', 'hidden', 'important');
+                wrapper.style.setProperty('margin', '0', 'important');
+                wrapper.style.setProperty('padding', '0', 'important');
+                // Also collapse parent border-wrapper
+                const bw = wrapper.closest('[data-testid="stVerticalBlockBorderWrapper"]');
+                if (bw) {
+                  bw.style.setProperty('display', 'none', 'important');
+                }
+              }
+            });
           }
 
           // Run immediately and watch for Streamlit re-renders
@@ -343,7 +378,7 @@ def _render_browser_auto_pair_probe():
 })();
 </script>
 """,
-        height=68,
+        height=0,
     )
 
 
@@ -1428,6 +1463,49 @@ html, body {
     padding-top: 0px !important;
     margin-top: 0px !important;
 }
+/* Collapse Streamlit component iframe wrappers (branding, scripts, probes) */
+[data-testid="stMain"] iframe[height="0"],
+[data-testid="stMain"] .stHtml,
+[data-testid="stMain"] [data-testid="stCustomComponentV1"] {
+    display: block !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    line-height: 0 !important;
+    font-size: 0 !important;
+}
+/* Also collapse the element-container wrappers around zero-height components */
+[data-testid="stMain"] [data-testid="element-container"]:has(iframe[height="0"]),
+[data-testid="stMain"] [data-testid="element-container"]:has(.stHtml),
+[data-testid="stMain"] [data-testid="element-container"]:has([data-testid="stCustomComponentV1"]) {
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+/* Collapse vertical-block-border-wrappers that contain only hidden components */
+[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"]:has(> [data-testid="element-container"]:has(iframe[height="0"])),
+[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"]:has(> [data-testid="element-container"]:has(.stHtml)),
+[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"]:has(> [data-testid="element-container"]:has([data-testid="stCustomComponentV1"])) {
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: none !important;
+}
+/* Collapse the vertical-block wrapper gaps for hidden components */
+[data-testid="stMain"] [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"]:first-child {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
 /* Collapse the header entirely so it takes zero space */
 [data-testid="stHeader"] {
     display: none !important;
@@ -1476,7 +1554,7 @@ html, body {
     width: min(100%, var(--app-shell-max-width)) !important;
     max-width: var(--app-shell-max-width) !important;
     margin: 0 auto !important;
-    padding: 0 24px 12px 24px !important;
+    padding: 10px 24px 12px 24px !important;
     min-height: auto !important;
     height: auto !important;
     max-height: unset !important;
